@@ -1,0 +1,6 @@
+# Dependencias de ejecución (probadas con Python 3.14 en Windows 11)
+hidapi>=0.14        # lector HID del dongle (instalado: 0.15.0)
+sounddevice>=0.5    # tono anti-apagado por WASAPI (0.5.6)
+numpy>=2.0          # síntesis del tono (2.5.4)
+pystray>=0.19.5     # ícono de bandeja y notificaciones (0.19.5)
+Pillow>=10.1        # dibujo del ícono (13.0.0)
