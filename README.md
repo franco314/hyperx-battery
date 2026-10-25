@@ -10,6 +10,18 @@ App de bandeja para Windows 11 que muestra la batería del **HyperX Cloud Flight
 
 Interfaz en español; código e identificadores en inglés.
 
+## Compatibilidad
+
+| Auricular | Dongle USB | Estado |
+|---|---|---|
+| HyperX Cloud Flight Wireless **para PS4/PS5/PC** (versión PlayStation) | `0951:1749` | ✅ Probado |
+| HyperX Cloud Flight Wireless (versión PC) | `0951:16C4`, `0951:1723` | ❌ No soportado: usa otro ID y no se detecta |
+| Otros HyperX (Cloud Flight S, Cloud II/III, Alpha Wireless…) | — | ❌ No soportado |
+
+Para saber qué versión tenés: Administrador de dispositivos → Dispositivos de sonido → el dongle debe llamarse **"HyperX Cloud Flight for PS"**. Si tu modelo no aparece, abrí un *issue* con el ID de tu dongle.
+
+Solo Windows (probado en Windows 11).
+
 ## Requisitos
 
 - Windows 11, Python 3.14 (el venv del proyecto está en `.venv`).
