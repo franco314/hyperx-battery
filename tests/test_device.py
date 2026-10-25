@@ -316,3 +316,16 @@ def test_simulated_charging_is_above_the_charging_threshold():
     assert wait_for(lambda: sink.of(BatteryEvent))
     sim.stop()
     assert is_charging(sink.of(BatteryEvent)[0].mv)
+
+
+def test_simulated_charge_can_start_from_a_discharging_level():
+    from hyperx_battery.battery import is_charging, mv_to_percent
+
+    sink = Collector()
+    sim = SimulatedMonitor(sink, 82, poll_interval_s=0.05, charging=True, precharge_readings=2)
+    sim.start()
+    assert wait_for(lambda: len(sink.of(BatteryEvent)) >= 4)
+    sim.stop()
+    readings = sink.of(BatteryEvent)
+    assert [is_charging(r.mv) for r in readings[:4]] == [False, False, True, True]
+    assert round(mv_to_percent(readings[0].mv)) == 82

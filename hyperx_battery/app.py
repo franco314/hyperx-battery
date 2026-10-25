@@ -14,10 +14,18 @@ import os
 import queue
 import time
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 from . import autostart
 from .battery import BatteryStatus, BatteryTracker, LowBatteryNotifier
+from .charge import (
+    MAX_SESSION_S,
+    STATE_FILE,
+    format_time_to_full,
+    load_estimator,
+    save_estimator,
+    start_from_history,
+)
 from .config import Config
 from .device import BatteryEvent, DongleEvent, MuteEvent, PresenceEvent
 from .history import (
@@ -75,6 +83,12 @@ class Controller:
         self._remaining_text: Optional[str] = None
         self._decision = KeepAliveDecision(False, "headset_off")
         self._need_estimate = True
+
+        # charge estimate (see charge.py); simulations never touch the real file
+        self._charge_path: Optional[Path] = None if simulated else data_dir / STATE_FILE
+        self._charge = load_estimator(self._charge_path, self._wall())
+        self._was_charging: Optional[bool] = None
+        self._last_shown: Optional[Tuple[float, int]] = None     # (wall, % shown before charging)
 
     # -- thread-safe entry points ---------------------------------------------------
     def post(self, item: Any) -> None:
@@ -139,6 +153,7 @@ class Controller:
             # Off -> on: the old smoothing is meaningless, start fresh.
             self._tracker.reset()
             self._status = None
+            self._was_charging = None
             self._need_estimate = True
         elif was is not False:
             self._headset_gone()
@@ -148,6 +163,9 @@ class Controller:
         self._tracker.reset()
         self._status = None
         self._muted = None
+        self._was_charging = None
+        if self._charge.session is None:
+            self._charge.cancel()               # unplugged and off: nothing left to learn from
 
     def _on_mute(self, ev: MuteEvent) -> None:
         changed = self._muted is not ev.muted
@@ -171,12 +189,61 @@ class Controller:
         elif status.charging:
             self._notifier.rearm()
 
+        self._track_charge(ev.wall, status)
+
         sample = self._aggregator.add(ev.wall, ev.mv, status.percent, status.charging)
         if sample is not None:
             self._save_sample(sample)
             self._need_estimate = True
         if self._need_estimate:
             self._update_estimate()
+
+    # -- charge estimate ------------------------------------------------------------
+    def _track_charge(self, wall: float, status: BatteryStatus) -> None:
+        was, self._was_charging = self._was_charging, status.charging
+        if status.charging:
+            if was is not True:
+                self._charge_started(wall)
+            return
+        if status.percent is not None:
+            self._last_shown = (wall, status.percent)
+        if was is True:
+            self._charge.finish(wall)
+            self._save_charge()
+        elif was is None and self._charge.session is not None:
+            self._charge.cancel()               # the charge ended while we were not looking
+            self._save_charge()
+        rate = self._charge.settle(wall, status.percent)
+        if rate is not None:
+            log.info("Charge rate learned: %.1f %%/h", rate)
+            self._save_charge()
+
+    def _charge_started(self, wall: float) -> None:
+        start = self._pre_charge_percent(wall)
+        self._last_shown = None
+        if start is None:
+            percent, start_ts = None, wall
+        else:
+            percent, start_ts = start
+        if self._charge.start(wall, percent, start_ts):
+            log.info("Charge estimate from %s %% at rate %.1f %%/h",
+                     self._charge.session.start_percent, self._charge.rate)
+        else:
+            log.info("Charging with no recent percentage: no estimate")
+        self._save_charge()
+
+    def _pre_charge_percent(self, wall: float) -> Optional[Tuple[float, float]]:
+        """``(percent, start_ts)`` shown before this charge began, if recent."""
+        if self._last_shown is not None and wall - self._last_shown[0] <= MAX_SESSION_S:
+            return float(self._last_shown[1]), wall
+        try:
+            return start_from_history(self._store.range(wall - MAX_SESSION_S, wall), wall)
+        except Exception:  # noqa: BLE001
+            log.exception("Cannot read history for the charge start")
+            return None
+
+    def _save_charge(self) -> None:
+        save_estimator(self._charge_path, self._charge)
 
     # -- history / estimate ---------------------------------------------------------
     def _save_sample(self, sample: Sample) -> None:
@@ -250,10 +317,18 @@ class Controller:
         else:
             link = "off"
         status = self._status
+        estimate = full_in = None
+        if link == "on" and status is not None and status.charging:
+            now = self._wall()
+            estimate = self._charge.estimate(now)
+            if estimate is not None:
+                full_in = format_time_to_full(self._charge.hours_to_full(now))
         return TrayView(
             link=link,
             percent=status.percent if status else None,
             charging=bool(status and status.charging),
+            estimate=estimate,
+            full_in=full_in,
             muted=self._muted,
             remaining=self._remaining_text,
             keepalive=self._keepalive_text(),

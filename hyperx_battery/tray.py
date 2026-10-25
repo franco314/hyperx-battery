@@ -25,6 +25,7 @@ BLUE: Color = (37, 99, 235)
 WHITE: Color = (255, 255, 255)
 DARK: Color = (24, 24, 27)
 MUTE_RED: Color = (239, 68, 68)
+APPROX_FG: Color = (191, 219, 254)      # light blue: estimated digits read as "not measured"
 
 TOOLTIP_LIMIT = 127     # NOTIFYICONDATA.szTip is 128 UTF-16 units including NUL
 
@@ -39,6 +40,8 @@ class TrayView:
     link: str = "searching"             # searching | no_dongle | off | on
     percent: Optional[int] = None
     charging: bool = False
+    estimate: Optional[int] = None      # time-based % while charging (not a measurement)
+    full_in: Optional[str] = None       # e.g. "lleno en ~25 min"
     muted: Optional[bool] = None        # None = no mute event ever received
     remaining: Optional[str] = None     # e.g. "~12 h restantes" / "calculando…"
     keepalive: str = "esperando auricular"
@@ -52,6 +55,7 @@ class IconSpec:
     bg: Color
     fg: Color
     muted: bool = False
+    approx: bool = False                # label is an estimate: drawn dimmer over a faint bolt
 
 
 def percent_color(percent: int) -> Color:
@@ -68,6 +72,8 @@ def icon_spec(view: TrayView) -> IconSpec:
     if view.link != "on":
         return IconSpec("off", "--", GRAY, WHITE)
     if view.charging:
+        if view.estimate is not None:
+            return IconSpec("charging", str(view.estimate), BLUE, APPROX_FG, muted, approx=True)
         return IconSpec("charging", "", BLUE, WHITE, muted)
     if view.percent is None:
         return IconSpec("off", "..", GRAY, WHITE, muted)
@@ -87,6 +93,10 @@ def tooltip_text(view: TrayView) -> str:
     else:
         if view.charging:
             parts.append("cargando")
+            if view.estimate is not None:
+                parts.append(f"~{view.estimate} % (estimado)")
+                if view.full_in:
+                    parts.append(view.full_in)
         elif view.percent is not None:
             parts.append(f"{view.percent} %")
             if view.remaining:
@@ -112,6 +122,10 @@ def status_text(view: TrayView) -> str:
         base = "Auricular apagado"
     elif view.charging:
         base = "Cargando…"
+        if view.estimate is not None:
+            base += f" ~{view.estimate} % (estimado)"
+            if view.full_in:
+                base += f" · {view.full_in}"
     elif view.percent is not None:
         base = f"Batería: {view.percent} %"
         if view.remaining:
@@ -164,6 +178,10 @@ def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_w: int, max_h: int) -> I
     return _load_font(6)
 
 
+def _blend(a: Color, b: Color, t: float) -> Color:
+    return (int(a[0] + (b[0] - a[0]) * t), int(a[1] + (b[1] - a[1]) * t), int(a[2] + (b[2] - a[2]) * t))
+
+
 def render_icon(spec: IconSpec, size: int = 16) -> Image.Image:
     """Render the tray icon at exactly ``size`` x ``size`` pixels."""
     s = size * _SUPERSAMPLE
@@ -172,8 +190,10 @@ def render_icon(spec: IconSpec, size: int = 16) -> Image.Image:
     draw.rounded_rectangle((0, 0, s - 1, s - 1), radius=int(s * 0.22), fill=spec.bg + (255,))
 
     if spec.kind == "charging":
-        draw.polygon([(x * s, y * s) for x, y in _BOLT], fill=spec.fg + (255,))
-    elif spec.label:
+        # Estimated digits go over a faint bolt (still reads as "charging").
+        bolt = _blend(spec.bg, WHITE, 0.22) if spec.label else spec.fg
+        draw.polygon([(x * s, y * s) for x, y in _BOLT], fill=bolt + (255,))
+    if spec.label:
         max_w = int(s * (0.96 if len(spec.label) <= 2 else 0.98))
         max_h = int(s * (0.80 if len(spec.label) <= 2 else 0.60))
         font = _fit_font(draw, spec.label, max_w, max_h)

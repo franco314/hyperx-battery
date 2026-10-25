@@ -49,7 +49,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--simulate-percent", type=float, metavar="N",
                    help="no usa el auricular: simula una batería de N %% (prueba íconos y avisos)")
     p.add_argument("--simulate-charging", action="store_true",
-                   help="junto con --simulate-percent: simula que está cargando")
+                   help="junto con --simulate-percent: simula una carga que empieza desde ese %% (prueba la estimación)")
     p.add_argument("--no-keepalive", action="store_true",
                    help="no reproduce el tono anti-apagado en esta ejecución")
     p.add_argument("--selftest", action="store_true",
@@ -263,7 +263,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     monitor: Any
     if simulated:
         monitor = SimulatedMonitor(controller.post, args.simulate_percent,
-                                   cfg.poll_interval_s, charging=args.simulate_charging)
+                                   cfg.poll_interval_s, charging=args.simulate_charging,
+                                   precharge_readings=2)
         log.info("SIMULATION: battery fixed at %.0f %%", args.simulate_percent)
     else:
         monitor = HeadsetMonitor(

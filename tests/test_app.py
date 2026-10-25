@@ -298,3 +298,164 @@ def test_simulated_flag_reaches_the_view(tmp_path):
     c.post(BatteryEvent(3860, 1.0, 1.0))
     c.process_pending()
     assert ui.view.simulated and "simulación" in ui.view.keepalive and ui.view.percent == 75
+
+
+# -- charge estimate ---------------------------------------------------------------------
+CHARGING_MV = 4317
+H = 3600.0
+
+
+def charging_rig(tmp_path, percent=60, **kw):
+    """Powered-on rig that has shown ``percent`` and has just started charging."""
+    rig = Rig(tmp_path, **kw)
+    rig.power_on()
+    for _ in range(3):
+        rig.battery(round(battery.percent_to_mv(percent)))
+    for _ in range(2):                                 # the tracker confirms charging on the 2nd reading
+        rig.battery(CHARGING_MV)
+    assert rig.ui.view.charging
+    return rig
+
+
+def new_controller(tmp_path, wall_now, **kw):
+    return Controller(Config(), tmp_path / "config.json", tmp_path, HistoryStore(":memory:"), None,
+                      wall=lambda: wall_now, **kw)
+
+
+def test_estimate_starts_from_the_last_shown_percent_and_grows(tmp_path):
+    rig = charging_rig(tmp_path, 60)
+    view = rig.ui.view
+    assert view.percent is None and view.estimate == 60          # the measured value stays None
+    rig.battery(CHARGING_MV, dt=0.4 * H)                         # +10 % at 25 %/h
+    assert rig.ui.view.estimate == 70
+    assert rig.ui.view.full_in == "lleno en ~1,2 h"
+    rig.battery(CHARGING_MV, dt=2 * H)
+    assert rig.ui.view.estimate == 99 and rig.ui.view.full_in == "casi lleno"
+    rig.battery(CHARGING_MV, dt=10 * H)
+    assert rig.ui.view.estimate is None and rig.ui.view.charging  # too old to trust
+
+
+def test_estimate_is_never_written_to_history(tmp_path):
+    rig = charging_rig(tmp_path, 60)
+    for _ in range(30):
+        rig.battery(CHARGING_MV, dt=60)
+    rig.c.shutdown()
+    rows = [r for r in rig.store.range(0, 10**9) if r.charging]
+    assert rows and all(r.percent is None for r in rows)
+
+
+def test_without_a_known_start_there_is_no_estimate(tmp_path):
+    rig = Rig(tmp_path)
+    rig.power_on()
+    for _ in range(3):
+        rig.battery(CHARGING_MV)                                 # app started while charging, no history
+    assert rig.ui.view.charging and rig.ui.view.estimate is None and rig.ui.view.full_in is None
+
+
+def test_app_started_while_charging_uses_recent_history(tmp_path):
+    rig = Rig(tmp_path)
+    now = rig.wall_now
+    rig.store.add(Sample(now - 2 * H, 3960, 95, False))
+    rig.store.add(Sample(now - 1 * H, 3950, 70, False))
+    for m in range(40):
+        rig.store.add(Sample(now - 1800 + 30 * m, CHARGING_MV, None, True))   # charging since now - 30 min
+    rig.power_on()
+    for _ in range(2):
+        rig.battery(CHARGING_MV)
+    assert rig.ui.view.estimate == 83                            # 70 + 25 %/h * 0.5 h (+ the 10 s of this run)
+
+
+def test_history_that_is_too_old_gives_no_estimate(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.add(Sample(rig.wall_now - 13 * H, 3950, 70, False))
+    rig.power_on()
+    for _ in range(2):
+        rig.battery(CHARGING_MV)
+    assert rig.ui.view.estimate is None
+
+
+def test_unplug_switches_back_to_the_measured_value(tmp_path):
+    rig = charging_rig(tmp_path, 82)
+    rig.battery(CHARGING_MV, dt=0.6 * H)
+    assert rig.ui.view.estimate == 97
+    shown = []
+    for mv in (4025, 4025, 4016, 4016, 4007, 4007):             # real post-unplug readings (surface charge)
+        rig.battery(mv)
+        shown.append(rig.ui.view)
+    assert all(not v.charging and v.estimate is None and v.full_in is None for v in shown[1:])
+    percents = [v.percent for v in shown[1:]]
+    assert percents[0] == 97                                     # the measurement, not the estimate
+    assert percents == sorted(percents, reverse=True)            # and it only goes down from there
+
+
+def test_rate_is_learned_five_minutes_after_the_unplug_and_persisted(tmp_path):
+    rig = charging_rig(tmp_path, 82)
+    rig.battery(CHARGING_MV, dt=37 * 60)
+    for _ in range(80):                                          # 6.7 min of discharge readings
+        rig.battery(4025)
+    learned = rig.c._charge.rate
+    assert learned != 25.0 and 22.0 < learned < 28.0     # 82 -> 97 % in ~37 min
+    assert new_controller(tmp_path, rig.wall_now)._charge.rate == pytest.approx(learned, abs=0.01)
+
+
+def test_no_learning_when_the_headset_turns_off_before_five_minutes(tmp_path):
+    rig = charging_rig(tmp_path, 82)
+    rig.battery(CHARGING_MV, dt=37 * 60)
+    for _ in range(10):                                          # 50 s
+        rig.battery(4025)
+    rig.send(PresenceEvent(False))
+    rig.send(PresenceEvent(True))
+    for _ in range(80):
+        rig.battery(4025)
+    assert rig.c._charge.rate == 25.0
+
+
+def test_restart_mid_charge_keeps_the_estimate(tmp_path):
+    rig = charging_rig(tmp_path, 60)
+    rig.battery(CHARGING_MV, dt=0.2 * H)
+    assert rig.ui.view.estimate == 65
+    rig.c.shutdown()
+    # a new process 0.2 h later, still charging (nothing in history says what the % was)
+    rig2 = Rig(tmp_path, wall_now=rig.wall_now + 0.2 * H)
+    rig2.power_on()
+    rig2.battery(CHARGING_MV)
+    assert rig2.ui.view.estimate == 70
+
+
+def test_restart_after_the_charge_ended_drops_the_stale_session(tmp_path):
+    rig = charging_rig(tmp_path, 60)
+    rig.c.shutdown()
+    rig2 = Rig(tmp_path, wall_now=rig.wall_now + H)
+    rig2.power_on()
+    rig2.battery(3950)                                           # unplugged while the app was closed
+    assert rig2.ui.view.estimate is None and rig2.c._charge.session is None
+    assert new_controller(tmp_path, rig2.wall_now)._charge.session is None   # also gone from the file
+
+
+def test_corrupt_state_file_does_not_break_the_app(tmp_path):
+    (tmp_path / "charge_state.json").write_text("{oops", encoding="utf-8")
+    rig = charging_rig(tmp_path, 60)
+    assert rig.ui.view.estimate == 60 and rig.c._charge.rate == 25.0
+
+
+def test_simulation_never_touches_the_state_file(tmp_path):
+    c = new_controller(tmp_path, 10.0, simulated=True)
+    c.ui = FakeUI()
+    c.post(DongleEvent(True)); c.post(PresenceEvent(True))
+    for i in range(3):
+        c.post(BatteryEvent(3950, float(i), 1.0 + i))
+    for i in range(3, 6):
+        c.post(BatteryEvent(CHARGING_MV, float(i), 1.0 + i))
+    c.process_pending()
+    assert c.ui.view.estimate is not None
+    assert not (tmp_path / "charge_state.json").exists()
+
+
+def test_low_battery_notifier_ignores_the_estimate(tmp_path):
+    rig = charging_rig(tmp_path, 15)
+    n = len(rig.ui.notes)
+    rig.battery(CHARGING_MV, dt=2 * H)                           # the estimate climbs well above 20
+    assert len(rig.ui.notes) == n
+    for _ in range(5):
+        rig.battery(round(battery.percent_to_mv(15)))            # unplugged at 15 %: warns again
+    assert len(rig.ui.notes) == n + 1

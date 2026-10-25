@@ -336,7 +336,12 @@ class HeadsetMonitor:
 # Hardware-free stand-in for --simulate-percent
 # --------------------------------------------------------------------------
 class SimulatedMonitor:
-    """Emits a steady battery level as if the headset were on."""
+    """Emits a steady battery level as if the headset were on.
+
+    With ``charging`` the level is a charging voltage; ``precharge_readings``
+    first emits that many discharging readings at ``percent`` so the app has a
+    "last shown %" to start its charge estimate from.
+    """
 
     def __init__(
         self,
@@ -344,10 +349,12 @@ class SimulatedMonitor:
         percent: float,
         poll_interval_s: float = 5.0,
         charging: bool = False,
+        precharge_readings: int = 0,
     ) -> None:
         self._sink = sink
         self._interval = poll_interval_s
         self._mv = int(round(battery.percent_to_mv(percent)))
+        self._precharge = (self._mv, precharge_readings) if charging else (self._mv, 0)
         if charging:
             self._mv = max(self._mv, battery.CHARGING_MV_THRESHOLD + 30)
         self._stop = threading.Event()
@@ -368,6 +375,9 @@ class SimulatedMonitor:
     def _run(self) -> None:
         self._sink(DongleEvent(True))
         self._sink(PresenceEvent(True))
+        pre_mv, pre_n = self._precharge
+        for _ in range(pre_n):
+            self._sink(BatteryEvent(pre_mv, time.monotonic(), time.time()))
         while not self._stop.is_set():
             self._sink(BatteryEvent(self._mv, time.monotonic(), time.time()))
             self._stop.wait(self._interval)
