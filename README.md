@@ -1,203 +1,211 @@
 # HyperX Battery
 
-App de bandeja para Windows 11 que muestra la batería del **HyperX Cloud Flight for PS** (dongle USB `0951:1749`) y evita que el auricular se apague solo.
+**English** · [Español](README.es.md)
 
-- **Ícono de bandeja** con el porcentaje (de a 1 %) sobre un fondo de color: verde > 50 %, amarillo 20-50 %, rojo < 20 %, gris si el auricular está apagado o el dongle desconectado, rayo azul si está cargando (con el número estimado en celeste tenue en lugar del rayo, ver "Estimación al cargar"). Es un cuadrado redondeado de colores suaves con el número en blanco (oscuro sobre el amarillo), dibujado al tamaño exacto de la bandeja para verse nítido; con 100 % el número se achica para caber, y se muestra `--` si el auricular está apagado. Si se detecta que el micrófono está silenciado aparece un punto rojo en la esquina.
-- **Anti-apagado**: reproduce un tono de 10 Hz al 5 % (inaudible) en la salida del HyperX mientras el auricular está prendido. Se pausa con la sesión bloqueada o tras N minutos sin tocar teclado ni mouse.
-- **Audio predeterminado automático**: al prender el auricular, la salida y el micrófono del HyperX pasan a ser los predeterminados de Windows; al apagarlo vuelven a unos dispositivos fijos (por defecto "Altavoces (Realtek(R) Audio)" y "Micrófono (Brio 100)", configurables) o, si no hay, a los que había antes (ver "Cambio automático de audio").
-- **Aviso de batería baja** (20 % y 10 %, una sola vez por ciclo de descarga).
-- **Historial** en SQLite, tiempo restante estimado y ventana con gráfico de 24 h / 7 días.
-- **Iniciar con Windows** desde el menú.
-- **Instalador de Windows** por usuario (sin permisos de administrador) o `.exe` portable.
+*Unofficial — not affiliated with HyperX or HP.*
 
-Interfaz en español; código e identificadores en inglés.
+Windows 11 tray app that shows the battery level of the **HyperX Cloud Flight for PS** (USB dongle `0951:1749`) and keeps the headset from shutting itself off.
 
-## Compatibilidad
+- **Tray icon** with the percentage (in 1% steps) on a colored background: green > 50%, yellow 20-50%, red < 20%, grey if the headset is off or the dongle is unplugged, blue lightning bolt if charging (with the estimated number in a faint light blue instead of the bolt, see "Charge estimation"). It is a rounded square in soft colors with the number in white (dark on the yellow), drawn at the exact tray size so it looks crisp; at 100% the number shrinks to fit, and `--` is shown if the headset is off. If the microphone is detected as muted, a red dot appears in the corner.
+- **Keep-alive** (menu entry **Anti-apagado**): plays a 10 Hz tone at 5% (inaudible) on the HyperX output while the headset is on. It pauses while the session is locked or after N minutes without keyboard or mouse input.
+- **Automatic default audio**: when the headset turns on, the HyperX output and microphone become the Windows defaults; when it turns off they go back to fixed devices (by default "Altavoces (Realtek(R) Audio)" (Speakers) and "Micrófono (Brio 100)" (Microphone), configurable) or, if those aren't available, to whatever was set before (see "Automatic audio switching").
+- **Low-battery alerts** (20% and 10%, only once per discharge cycle).
+- **History** in SQLite, estimated remaining time and a window with a 24 h / 7 day chart.
+- **Start with Windows** from the menu.
+- **Windows installer** per user (no administrator rights) or a portable `.exe`.
 
-| Auricular | Dongle USB | Estado |
+> **Note:** the app's interface (tray menu, notifications, tooltip) is currently in Spanish; code and identifiers are in English. In this README each Spanish label is shown in **bold** with its English meaning in parentheses, the first time and wherever it helps. The installer wizard is in Spanish or English depending on your Windows language.
+
+## Compatibility
+
+| Headset | USB dongle | Status |
 |---|---|---|
-| HyperX Cloud Flight Wireless **para PS4/PS5/PC** (versión PlayStation) | `0951:1749` | ✅ Probado |
-| HyperX Cloud Flight Wireless (versión PC) | `0951:16C4`, `0951:1723` | ❌ No soportado: usa otro ID y no se detecta |
-| Otros HyperX (Cloud Flight S, Cloud II/III, Alpha Wireless…) | — | ❌ No soportado |
+| HyperX Cloud Flight Wireless **for PS4/PS5/PC** (PlayStation version) | `0951:1749` | ✅ Tested |
+| HyperX Cloud Flight Wireless (PC version) | `0951:16C4`, `0951:1723` | ❌ Not supported: it uses a different ID and isn't detected |
+| Other HyperX headsets (Cloud Flight S, Cloud II/III, Alpha Wireless…) | — | ❌ Not supported |
 
-Para saber qué versión tenés: Administrador de dispositivos → Dispositivos de sonido → el dongle debe llamarse **"HyperX Cloud Flight for PS"**. Si tu modelo no aparece, abrí un *issue* con el ID de tu dongle.
+To find out which version you have: Device Manager → Sound, video and game controllers → the dongle should be called **"HyperX Cloud Flight for PS"**. If your model isn't listed, open an *issue* with your dongle's ID.
 
-Solo Windows (probado en Windows 11).
+Windows only (tested on Windows 11).
 
-## Instalación
+## Installation
 
-### Con el instalador (recomendado)
+### With the installer (recommended)
 
-1. Descarga `HyperXBattery-Setup-<versión>.exe` desde [Releases](https://github.com/franco314/hyperx-battery/releases), o genéralo tú (ver "Compilar el instalador").
-2. Ábrelo y sigue el asistente (en español o inglés, según el idioma de Windows). Se instala **solo para tu usuario**: no pide permisos de administrador ni muestra el aviso de UAC, y deja el programa en `%LOCALAPPDATA%\Programs\HyperX Battery`. En el menú Inicio siempre crea un acceso directo.
-3. Opciones del asistente:
+1. Download `HyperXBattery-Setup-<version>.exe` from [Releases](https://github.com/franco314/hyperx-battery/releases), or build it yourself (see "Building the installer").
+2. Open it and follow the wizard (in Spanish or English, depending on your Windows language). It installs **for your user only**: it asks for no administrator rights and shows no UAC prompt, and puts the program in `%LOCALAPPDATA%\Programs\HyperX Battery`. A Start menu shortcut is always created.
+3. Wizard options:
 
-| Opción | Por defecto |
+| Option | Default |
 |---|---|
-| Acceso directo en el escritorio | desmarcada |
-| **Iniciar con Windows** (escribe la clave `Run`, ver "Iniciar con Windows") | marcada |
-| **Abrir HyperX Battery** al terminar | marcada |
+| Desktop shortcut | unchecked |
+| **Start with Windows** (writes the `Run` key, see "Start with Windows") | checked |
+| **Open HyperX Battery** when finished | checked |
 
-**Aviso de SmartScreen**: el instalador no está firmado digitalmente (un certificado de firma de código es de pago), así que Windows puede mostrar "Windows protegió su PC" la primera vez. Pulsa **Más información → Ejecutar de todas formas**. El instalador sale del script `installer\HyperXBattery.iss` de este repositorio, así que puedes revisarlo o compilarlo tú.
+**SmartScreen warning**: the installer isn't digitally signed (a code-signing certificate costs money), so Windows may show "Windows protected your PC" the first time. Click **More info → Run anyway**. The installer is built from the script `installer\HyperXBattery.iss` in this repository, so you can review or compile it yourself.
 
-**Actualizar**: ejecuta el instalador de la versión nueva sin desinstalar nada; reemplaza a la anterior y conserva tu configuración e historial. Si HyperX Battery está abierto, el instalador pregunta si cerrarlo y lo cierra por ti (primero con un cierre normal y, si no responde en 5 s, a la fuerza); en una instalación silenciosa lo cierra sin preguntar y lo vuelve a abrir al terminar. La casilla "Iniciar con Windows" parte del estado real: si lo apagaste desde el menú de la bandeja, aparece desmarcada.
+**Updating**: run the newer installer without uninstalling anything; it replaces the old version and keeps your settings and history. If HyperX Battery is open, the installer asks whether to close it and closes it for you (first with a normal close and, if it doesn't respond within 5 s, by force); in a silent install it closes it without asking and reopens it when it finishes. The "Start with Windows" checkbox starts from the real state: if you turned it off from the tray menu, it appears unchecked.
 
-**Desinstalar**: *Configuración → Aplicaciones → Aplicaciones instaladas → HyperX Battery → Desinstalar* (o `unins000.exe` en la carpeta de instalación). Cierra la app si está abierta y borra el programa, los accesos directos y la clave de inicio con Windows. Al final pregunta si quieres borrar también tus datos de `%APPDATA%\HyperXBattery` (historial y configuración): la respuesta por defecto es **No**, y una desinstalación silenciosa siempre los conserva.
+**Uninstalling**: *Settings → Apps → Installed apps → HyperX Battery → Uninstall* (or `unins000.exe` in the install folder). It closes the app if it is running and removes the program, the shortcuts and the start-with-Windows key. At the end it asks whether you also want to delete your data from `%APPDATA%\HyperXBattery` (history and settings): the default answer is **No**, and a silent uninstall always keeps them.
 
-**Instalación silenciosa** (útil para automatizar):
+**Silent install** (useful for automation):
 
 ```powershell
-.\HyperXBattery-Setup-1.3.1.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART                       # con "Iniciar con Windows"
-.\HyperXBattery-Setup-1.3.1.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /MERGETASKS="!startup" # sin "Iniciar con Windows"
-& "$env:LOCALAPPDATA\Programs\HyperX Battery\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES        # desinstala (conserva los datos)
+.\HyperXBattery-Setup-1.3.1.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART                       # with "Start with Windows"
+.\HyperXBattery-Setup-1.3.1.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /MERGETASKS="!startup" # without "Start with Windows"
+& "$env:LOCALAPPDATA\Programs\HyperX Battery\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES        # uninstalls (keeps the data)
 ```
 
-### Versión portable
+### Portable version
 
-El `HyperXBattery.exe` suelto también funciona sin instalar nada: déjalo en una carpeta fija y ábrelo. La clave de "Iniciar con Windows" guarda la ruta absoluta del `.exe`, así que si lo mueves destilda y vuelve a tildar la opción. No uses a la vez la versión portable y la instalada: comparten la instancia única (mutex), la clave de inicio y la carpeta de datos.
+The standalone `HyperXBattery.exe` also works without installing anything: put it in a permanent folder and open it. The "Start with Windows" key stores the absolute path of the `.exe`, so if you move it, uncheck and re-check the option. Don't use the portable and the installed versions at the same time: they share the single-instance mutex, the startup key and the data folder.
 
-## Requisitos para ejecutar desde el código o compilar
+## Requirements to run from source or build
 
-- Windows 11, Python 3.14 (el venv del proyecto está en `.venv`).
-- Dependencias de ejecución en `requirements.txt` (`hidapi`, `sounddevice`, `numpy`, `pystray`, `Pillow`, `comtypes`); las de desarrollo (`pytest`, `pyinstaller`) en `requirements-dev.txt`.
+- Windows 11, Python 3.14 (the project's venv is in `.venv`).
+- Runtime dependencies in `requirements.txt` (`hidapi`, `sounddevice`, `numpy`, `pystray`, `Pillow`, `comtypes`); development ones (`pytest`, `pyinstaller`) in `requirements-dev.txt`.
 
 ```powershell
-python -m venv .venv                                  # solo la primera vez
+python -m venv .venv                                  # first time only
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
-## Cómo ejecutarlo
+## How to run it
 
 ```powershell
-.\.venv\Scripts\python.exe -m hyperx_battery          # con consola (ves los mensajes si usas --debug-hid)
-.\.venv\Scripts\pythonw.exe run_tray.py               # sin consola
+.\.venv\Scripts\python.exe -m hyperx_battery          # with a console (you see the messages if you use --debug-hid)
+.\.venv\Scripts\pythonw.exe run_tray.py               # without a console
 ```
 
-También funciona el `.exe` generado (ver "Compilar"). Solo puede haber **una instancia** a la vez (mutex con nombre); si lanzas otra, sale sola.
+The generated `.exe` works too (see "Building the .exe and the installer"). Only **one instance** can run at a time (named mutex); if you launch another, it exits on its own.
 
-El ícono aparece en la bandeja (a veces dentro del menú `^` de íconos ocultos: arrástralo a la barra para tenerlo siempre a la vista).
+The icon appears in the tray (sometimes inside the `^` hidden-icons menu: drag it onto the taskbar to keep it always visible).
 
-### Menú de la bandeja (clic derecho)
+### Tray menu (right-click)
 
-| Entrada | Qué hace |
+| Entry | What it does |
 |---|---|
-| *Estado* (gris) | `Batería: 85 % (~12 h restantes)`, `Cargando… ~90 % (estimado) · lleno en ~25 min`, `Auricular apagado`, `Dongle USB no conectado` |
-| **Anti-apagado** ✓ | Activa / desactiva el tono. Se guarda en `config.json`. |
-| **Cambiar audio automáticamente** ✓ | Activa / desactiva el cambio del audio predeterminado al prender / apagar el auricular (`auto_switch_audio`). Se guarda en `config.json`. |
-| **Ver historial** | Abre la ventana con el gráfico (también con clic izquierdo en el ícono). |
-| **Iniciar con Windows** ✓ | Crea / borra la clave `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. |
-| **Abrir carpeta de datos** | Abre `%APPDATA%\HyperXBattery\`. |
-| **Salir** | Cierra todo. |
+| *Estado* (Status, grey) | `Batería: 85 % (~12 h restantes)` (Battery: 85% (~12 h remaining)), `Cargando… ~90 % (estimado) · lleno en ~25 min` (Charging… ~90% (estimated) · full in ~25 min), `Auricular apagado` (Headset off), `Dongle USB no conectado` (USB dongle not connected) |
+| **Anti-apagado** (Keep-alive) ✓ | Turns the tone on / off. Saved in `config.json`. |
+| **Cambiar audio automáticamente** (Switch audio automatically) ✓ | Turns on / off the switching of the default audio when the headset turns on / off (`auto_switch_audio`). Saved in `config.json`. |
+| **Ver historial** (View history) | Opens the window with the chart (also with a left click on the icon). |
+| **Iniciar con Windows** (Start with Windows) ✓ | Creates / deletes the `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` key. |
+| **Abrir carpeta de datos** (Open data folder) | Opens `%APPDATA%\HyperXBattery\`. |
+| **Salir** (Quit) | Closes everything. |
 
-Tooltip del ícono: `HyperX Cloud Flight · 85 % · ~12 h restantes · Anti-apagado: activo`; cargando: `HyperX Cloud Flight · cargando · ~90 % (estimado) · lleno en ~25 min · Anti-apagado: activo`.
+Icon tooltip: `HyperX Cloud Flight · 85 % · ~12 h restantes · Anti-apagado: activo` (… ~12 h remaining · Keep-alive: on); while charging: `HyperX Cloud Flight · cargando · ~90 % (estimado) · lleno en ~25 min · Anti-apagado: activo` (… charging · ~90% (estimated) · full in ~25 min · Keep-alive: on).
 
-## Cómo funciona
+## How it works
 
-- **Batería**: cada 5 s se escribe el reporte `21 FF 05 00…` (20 bytes) en la colección HID `0xFF90`; la respuesta `21 FF 05 HI LO` trae el voltaje en mV `(HI<<8)|LO`. El voltaje se convierte a % con una tabla (`battery.py`, constantes `CURVE_MV` / `CURVE_PERCENT`, reemplazables).
-- **Suavizado**: el % mostrado sale de la **mediana** de las lecturas de los últimos 2 min. Mientras se descarga, el número **solo baja**; puede volver a subir solo tras cargar, tras haber estado apagado, o si el valor nuevo supera al mostrado por 3 puntos o más durante 2 min seguidos. Además, para que el ruido de ±2 mV no mueva el número, solo baja cuando el valor suavizado está claramente por debajo (1 punto de margen) y de a un punto por vez (`BatteryTracker(fall_margin, max_fall_step)`; con `fall_margin=0` es la regla simple `min`). Consecuencia: el número puede quedar hasta ~1 punto por encima del valor "exacto".
-- **Cargando**: `HI == 0x10 and LO >= 20` o `HI >= 0x11` (≥ 4116 mV). Mientras carga el voltaje queda plano (~4,3 V) y no hay porcentaje medido: el ícono muestra el rayo o, si hay estimación, el número aproximado (en celeste tenue y sin el rayo detrás, para que se lea nítido). Al terminar se reinicia el suavizado y se vuelve al valor medido.
-- **Estimación al cargar**: al empezar a cargar se guarda la hora y el último % mostrado antes; el % estimado es `inicio + tasa × horas`, con tope en 99 % (nunca dice 100 %), y "lleno en" es `(100 − estimado) / tasa`. La tasa arranca en 25 %/h (la especificación de HyperX dice ~4,5 h para cargar a tope) y se **aprende**: unos 5 min después de desenchufar (cuando se disipa la carga superficial) se mide el % y se calcula la tasa real de esa carga, que se mezcla con la guardada (media móvil exponencial, peso 0,3, acotada a 10-60 %/h). Se ignoran las cargas de menos de 10 min, los resultados absurdos, y las que terminan en 99 % o más cuando son más lentas que la tasa actual (puede ser que simplemente se llenó); si el auricular se apaga antes de los 5 min no se aprende nada. Si la app arranca ya cargando, usa el último % del historial si tiene menos de 12 h; si no hay dato, solo muestra el rayo. La estimación **no** se guarda en el historial (esas filas siguen con % vacío) ni afecta los avisos de batería baja. Estado en `charge_state.json` (tasa aprendida y la carga en curso, para sobrevivir a un reinicio; si el archivo está dañado se usan los valores por defecto).
-- **Encendido / apagado**: el auricular **no avisa** cuando se apaga, así que se detecta porque deja de contestar: 2 consultas seguidas sin respuesta (≈ 7-12 s) → gris. La primera respuesta después → vuelve solo (≤ 5 s). Si se desenchufa el dongle se cierra todo y se reintenta cada 5 s.
-- **Anti-apagado**: abre un `OutputStream` WASAPI (modo compartido, float32, 48 kHz, estéreo) en la salida cuyo nombre contiene "HyperX" (no es la salida predeterminada) con un seno de 10 Hz al 5 %. Con silencio digital el auricular se apaga a los ~17 min; con este tono, no. Si la salida desaparece o el stream falla, se cierra y se reintenta cada 10 s buscando de nuevo por nombre. Entra y sale con un fundido de 150 ms para no hacer clic.
-  - **Pausas** (se retoma solo al volver): auricular apagado, interruptor del menú en off, sesión de Windows bloqueada, o inactividad ≥ `idle_pause_min` (15 por defecto; `0` la desactiva). Así Windows puede suspenderse.
-- **Cambio automático de audio**: el dongle sigue enchufado con el auricular apagado, así que Windows nunca cambia solo de dispositivo. Al detectar que el auricular **se prende**, la app guarda los dispositivos predeterminados actuales de reproducción y grabación (id y nombre) y pone como predeterminados, en los tres roles (consola, multimedia y comunicaciones), la salida y el micrófono cuyo nombre contiene `auto_switch_device_match` (por defecto `HyperX Cloud Flight`; entre los puntos finales activos, "Altavoces (HyperX Cloud Flight for PS)" y "Micrófono (HyperX Cloud Flight for PS)"). Al **apagarse**, la salida y el micrófono van por separado y solo se tocan si el predeterminado actual sigue siendo el HyperX (si elegiste otro mientras tanto, no lo toca):
-  - **Dispositivo fijo de apagado**: si `off_playback_match` / `off_capture_match` no están vacíos (por defecto `"Realtek"` y `"Brio"`), el predeterminado pasa al primer punto final activo de ese tipo cuyo nombre los contiene (sin distinguir mayúsculas), en los tres roles; con los valores por defecto: "Altavoces (Realtek(R) Audio)" y "Micrófono (Brio 100)", el de la cámara Logitech Brio. Nunca elige un punto final del propio HyperX.
-  - **Si no hay dispositivo fijo** (texto vacío, o ese dispositivo no está activo, p. ej. la cámara desenchufada), usa el que se guardó al prender; si tampoco existe o no hay ninguno guardado, deja todo como está y lo anota en `app.log`.
-  - Con el texto vacío en una de las dos, esa salida o micrófono sigue funcionando como antes: guarda lo que había al prender y lo restaura al apagar. Si el HyperX ya era el predeterminado al prenderse, no guarda nada nuevo (se conserva lo guardado antes); con dispositivo fijo eso ya no importa, porque al apagar va igual al fijo.
-  - **Notificación**: una sola por cambio, `Audio: HyperX Cloud Flight` al prender y, al apagar, los dispositivos que cambiaron, p. ej. `Audio: Altavoces (Realtek(R) Audio) · Micrófono (Brio 100)` (solo uno de los dos si el otro no cambió).
-  - **Apagado con espera**: el apagado explícito (evento `64 03` del propio auricular) cambia al instante; uno inferido por consultas sin respuesta (fuera de alcance, interferencia, dongle desenchufado) debe confirmarse `auto_switch_off_confirm_s` (20 s) más antes de cambiar, para que un corte breve no mande el audio a los parlantes. Si el auricular vuelve a prenderse en esa ventana, no se cambia nada. **Al arrancar la app con el auricular apagado** se aplica la misma regla tras la misma espera: si el HyperX sigue como predeterminado (p. ej. su micrófono quedó así con el auricular apagado), pasa al dispositivo fijo; si el predeterminado ya es otro, no se toca.
-  - **Persistencia**: los dispositivos guardados van en `audio_state.json` (escritura atómica; si está dañado se ignora), así que reiniciar la app con el auricular prendido sigue restaurando bien. Al arrancar con el auricular ya prendido se hace el mismo cambio. **Al salir de la app no se restaura nada.**
-  - **Cómo**: Windows no tiene API pública para cambiar el dispositivo predeterminado; se usa la interfaz COM no documentada `IPolicyConfig::SetDefaultEndpoint` (la misma que SoundSwitch o AudioDeviceCmdlets) y `IMMDeviceEnumerator` para leer los predeterminados y listar los puntos finales (`audio_switch.py`, con `comtypes`). Las interfaces están declaradas a mano (no se generan módulos en disco, así que funciona igual en el .exe) y todo corre en un hilo propio con COM inicializado, sin bloquear la interfaz. Al ser una interfaz no documentada, una actualización grande de Windows podría romperla; en ese caso desactiva la opción del menú y abre un *issue*.
-- **Tiempo restante**: pendiente (mínimos cuadrados) del % derivado del voltaje en la sesión de descarga actual (desde la última carga), usando las últimas 4 h de uso del auricular; los huecos con el auricular apagado no cuentan. Con menos de 30 min de datos dice "calculando…".
-- **Historial**: una fila por minuto en `history.sqlite` (mediana de mV del minuto, % mostrado, si cargaba). Se borran las filas de más de `history_keep_days` días al iniciar.
-- **Mute** (⚠ sin verificar en este modelo): se escuchan las 4 colecciones HID; `65 04` = micrófono silenciado, `65 xx` = activo, `64 01` / `64 03` = prendido / apagado. Si llegan eventos se muestra la notificación "Micrófono silenciado / activo" y el punto rojo en el ícono. Si nunca llegan, la función queda inactiva sin romper nada.
+- **Battery**: every 5 s the report `21 FF 05 00…` (20 bytes) is written to the HID collection `0xFF90`; the reply `21 FF 05 HI LO` carries the voltage in mV `(HI<<8)|LO`. The voltage is converted to a percentage with a lookup table (`battery.py`, constants `CURVE_MV` / `CURVE_PERCENT`, replaceable).
+- **Smoothing**: the displayed percentage is the **median** of the readings over the last 2 min. While discharging, the number **only goes down**; it can go back up only after charging, after the headset has been off, or if the new value exceeds the displayed one by 3 points or more for 2 min in a row. In addition, so that ±2 mV of noise doesn't move the number, it only goes down when the smoothed value is clearly below it (1 point of margin) and one point at a time (`BatteryTracker(fall_margin, max_fall_step)`; with `fall_margin=0` it is the plain `min` rule). Consequence: the number can sit up to ~1 point above the "exact" value.
+- **Charging**: `HI == 0x10 and LO >= 20` or `HI >= 0x11` (≥ 4116 mV). While charging, the voltage stays flat (~4.3 V) and there is no measured percentage: the icon shows the bolt or, if there is an estimate, the approximate number (in a faint light blue and without the bolt behind it, so it reads crisply). When charging ends, smoothing is reset and the icon goes back to the measured value.
+- **Charge estimation**: when charging starts, the time and the last percentage shown before it are saved; the estimated percentage is `start + rate × hours`, capped at 99% (it never says 100%), and "full in" is `(100 − estimated) / rate`. The rate starts at 25 %/h (HyperX's specification says ~4.5 h for a full charge) and is **learned**: about 5 min after unplugging (once the surface charge dissipates) the percentage is measured and the actual rate of that charge is computed, then blended with the stored one (exponential moving average, weight 0.3, clamped to 10-60 %/h). Charges shorter than 10 min, absurd results, and charges that end at 99% or more while being slower than the current rate (it may simply have filled up) are ignored; if the headset turns off before the 5 min are up, nothing is learned. If the app starts while already charging, it uses the last percentage in the history if it is less than 12 h old; if there is no data, it just shows the bolt. The estimate is **not** stored in the history (those rows keep an empty percentage) and does not affect the low-battery alerts. State is kept in `charge_state.json` (the learned rate and the charge in progress, so they survive a restart; if the file is corrupt the defaults are used).
+- **On / off**: the headset does **not** announce when it turns off, so it is detected because it stops answering: 2 consecutive polls without a reply (≈ 7-12 s) → grey. The first reply after that → it comes back on its own (≤ 5 s). If the dongle is unplugged, everything is closed and retried every 5 s.
+- **Keep-alive**: opens a WASAPI `OutputStream` (shared mode, float32, 48 kHz, stereo) on the output whose name contains "HyperX" (found by name, not the Windows default output) with a 10 Hz sine at 5%. With digital silence the headset shuts off after ~17 min; with this tone, it doesn't. If the output disappears or the stream fails, it is closed and retried every 10 s, searching again by name. It fades in and out over 150 ms to avoid clicks.
+  - **Pauses** (it resumes on its own when the condition clears): headset off, menu switch off, Windows session locked, or idle for ≥ `idle_pause_min` (15 by default; `0` disables it). This way Windows can go to sleep.
+- **Automatic audio switching**: the dongle stays plugged in while the headset is off, so Windows never switches device on its own. When it detects that the headset **turns on**, the app saves the current default playback and recording devices (id and name) and sets as defaults, in all three roles (console, multimedia and communications), the output and the microphone whose name contains `auto_switch_device_match` (default `HyperX Cloud Flight`; among the active endpoints, "Altavoces (HyperX Cloud Flight for PS)" (Speakers) and "Micrófono (HyperX Cloud Flight for PS)" (Microphone)). When it **turns off**, the output and the microphone are handled separately and are only touched if the current default is still the HyperX (if you chose another one in the meantime, it leaves it alone):
+  - **Fixed device on power-off**: if `off_playback_match` / `off_capture_match` are not empty (by default `"Realtek"` and `"Brio"`), the default moves to the first active endpoint of that type whose name contains the text (case-insensitive), in all three roles; with the default values: "Altavoces (Realtek(R) Audio)" (Speakers) and "Micrófono (Brio 100)" (Microphone), the one from the Logitech Brio camera. It never picks an endpoint of the HyperX itself.
+  - **If there is no fixed device** (empty text, or that device isn't active, e.g. the camera is unplugged), it uses the one that was saved at power-on; if that doesn't exist either or nothing was saved, it leaves everything as it is and notes it in `app.log`.
+  - With the text empty for one of the two, that output or microphone keeps working as before: it saves what was there at power-on and restores it at power-off. If the HyperX was already the default when it turned on, nothing new is saved (what was saved earlier is kept); with a fixed device this no longer matters, because at power-off it goes to the fixed one anyway.
+  - **Notification**: one per switch, `Audio: HyperX Cloud Flight` at power-on and, at power-off, the devices that changed, e.g. `Audio: Altavoces (Realtek(R) Audio) · Micrófono (Brio 100)` (only one of the two if the other didn't change).
+  - **Delayed power-off**: an explicit power-off (the headset's own `64 03` event) switches instantly; one inferred from unanswered polls (out of range, interference, dongle unplugged) must be confirmed for `auto_switch_off_confirm_s` (20 s) longer before switching, so that a brief dropout doesn't send the audio to the speakers. If the headset turns on again within that window, nothing is changed. **When the app starts with the headset off**, the same rule applies after the same wait: if the HyperX is still the default (e.g. its microphone was left that way while the headset was off), it moves to the fixed device; if the default is already something else, it isn't touched.
+  - **Persistence**: the saved devices go in `audio_state.json` (atomic write; if it is corrupt it is ignored), so restarting the app while the headset is on still restores correctly. When the app starts with the headset already on, the same switch is made. **Nothing is restored when the app exits.**
+  - **How**: Windows has no public API to change the default device; the app uses the undocumented COM interface `IPolicyConfig::SetDefaultEndpoint` (the same one used by SoundSwitch or AudioDeviceCmdlets) and `IMMDeviceEnumerator` to read the defaults and list the endpoints (`audio_switch.py`, with `comtypes`). The interfaces are declared by hand (no modules are generated on disk, so it works the same in the .exe) and everything runs on its own thread with COM initialized, without blocking the interface. Since it is an undocumented interface, a major Windows update could break it; if that happens, turn the menu option off and open an *issue*.
+- **Remaining time**: slope (least squares) of the percentage derived from the voltage over the current discharge session (since the last charge), using the last 4 h of headset use; gaps with the headset off don't count. With less than 30 min of data it says "calculando…" (calculating…).
+- **History**: one row per minute in `history.sqlite` (median mV of the minute, displayed percentage, whether it was charging). Rows older than `history_keep_days` days are deleted at startup.
+- **Mute** (⚠ unverified on this model): all 4 HID collections are listened to; `65 04` = microphone muted, `65 xx` = active, `64 01` / `64 03` = on / off. If events arrive, the notification "Micrófono silenciado / activo" (Microphone muted / active) and the red dot on the icon are shown. If they never arrive, the feature stays inactive without breaking anything.
 
-## Configuración
+## Configuration
 
-Se crea sola en `%APPDATA%\HyperXBattery\config.json` la primera vez. Edítala con la app cerrada. Las claves que falten usan el valor por defecto; los valores inválidos se reemplazan o se acotan (y se avisa en `app.log`).
+It is created automatically at `%APPDATA%\HyperXBattery\config.json` the first time. Edit it with the app closed. Missing keys use the default value; invalid values are replaced or clamped (and a notice is written to `app.log`).
 
-| Opción | Defecto | Descripción |
+| Option | Default | Description |
 |---|---|---|
-| `poll_interval_s` | `5` | Cada cuántos segundos se consulta la batería |
-| `reply_timeout_s` | `2` | Espera máxima de la respuesta |
-| `misses_to_off` | `2` | Consultas seguidas sin respuesta para dar el auricular por apagado |
-| `smoothing_window_s` | `120` | Ventana de la mediana |
-| `history_interval_s` | `60` | Una fila de historial cada N segundos |
-| `history_keep_days` | `365` | Días de historial que se conservan |
-| `keepalive_enabled` | `true` | Anti-apagado (lo cambia el menú) |
-| `tone_hz` | `10` | Frecuencia del tono |
-| `tone_amp` | `0.05` | Amplitud del tono (0.001 a 0.5) |
-| `idle_pause_min` | `15` | Minutos sin teclado/mouse para pausar el anti-apagado (`0` = nunca) |
-| `audio_device_match` | `"HyperX"` | Texto que debe contener el nombre de la salida WASAPI |
-| `keepalive_retry_s` | `10` | Reintento si la salida no está disponible |
-| `session_poll_s` | `5` | Cada cuánto se consulta bloqueo e inactividad |
-| `auto_switch_audio` | `true` | Cambio automático del audio predeterminado (lo cambia el menú) |
-| `auto_switch_device_match` | `"HyperX Cloud Flight"` | Texto que debe contener el nombre del punto final (salida y micrófono) |
-| `auto_switch_off_confirm_s` | `20` | Segundos extra para confirmar un apagado inferido antes de cambiar el audio (`0` = al instante; el apagado explícito siempre es inmediato) |
-| `off_playback_match` | `"Realtek"` | Con el auricular apagado, la salida predeterminada pasa a la primera salida activa cuyo nombre contiene este texto (sin distinguir mayúsculas). Vacío (`""`) = restaurar la que había al prender |
-| `off_capture_match` | `"Brio"` | Lo mismo para el micrófono (con el valor por defecto, "Micrófono (Brio 100)"). Vacío (`""`) = restaurar el que había al prender |
-| `notify_low_battery` | `true` | Avisos de batería baja |
-| `low_battery_thresholds` | `[20, 10]` | Porcentajes que disparan el aviso |
-| `notify_mute` | `true` | Notificación al silenciar / activar el micrófono |
+| `poll_interval_s` | `5` | How many seconds between battery polls |
+| `reply_timeout_s` | `2` | Maximum wait for the reply |
+| `misses_to_off` | `2` | Consecutive polls without a reply before the headset is considered off |
+| `smoothing_window_s` | `120` | Median window |
+| `history_interval_s` | `60` | One history row every N seconds |
+| `history_keep_days` | `365` | Days of history kept |
+| `keepalive_enabled` | `true` | Keep-alive (**Anti-apagado**; toggled from the menu) |
+| `tone_hz` | `10` | Tone frequency |
+| `tone_amp` | `0.05` | Tone amplitude (0.001 to 0.5) |
+| `idle_pause_min` | `15` | Minutes without keyboard/mouse input before the keep-alive pauses (`0` = never) |
+| `audio_device_match` | `"HyperX"` | Text the WASAPI output name must contain |
+| `keepalive_retry_s` | `10` | Retry interval if the output isn't available |
+| `session_poll_s` | `5` | How often the lock state and idle time are checked |
+| `auto_switch_audio` | `true` | Automatic switching of the default audio (toggled from the menu) |
+| `auto_switch_device_match` | `"HyperX Cloud Flight"` | Text the endpoint name (output and microphone) must contain |
+| `auto_switch_off_confirm_s` | `20` | Extra seconds to confirm an inferred power-off before switching the audio (`0` = immediately; an explicit power-off is always immediate) |
+| `off_playback_match` | `"Realtek"` | With the headset off, the default output moves to the first active output whose name contains this text (case-insensitive). Empty (`""`) = restore the one that was set at power-on |
+| `off_capture_match` | `"Brio"` | Same for the microphone (with the default value, "Micrófono (Brio 100)"). Empty (`""`) = restore the one that was set at power-on |
+| `notify_low_battery` | `true` | Low-battery alerts |
+| `low_battery_thresholds` | `[20, 10]` | Percentages that trigger the alert |
+| `notify_mute` | `true` | Notification when the microphone is muted / unmuted |
 
-## Iniciar con Windows
+## Start with Windows
 
-Desde el menú: **Iniciar con Windows**. Escribe el valor `HyperXBattery` en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, y al destildarlo lo borra. El comando es:
+From the menu: **Iniciar con Windows** (Start with Windows). It writes the value `HyperXBattery` to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and unchecking it deletes it. The command is:
 
-- empaquetado: `"…\dist\HyperXBattery.exe"`; con el instalador, `"%LOCALAPPDATA%\Programs\HyperX Battery\HyperXBattery.exe"` (la casilla del asistente escribe exactamente este valor, así que el menú de la bandeja lo muestra tildado y puede apagarlo)
-- desde el código: `"…\.venv\Scripts\pythonw.exe" "…\run_tray.py"`
+- packaged: `"…\dist\HyperXBattery.exe"`; with the installer, `"%LOCALAPPDATA%\Programs\HyperX Battery\HyperXBattery.exe"` (the wizard checkbox writes exactly this value, so the tray menu shows it checked and can turn it off)
+- from source: `"…\.venv\Scripts\pythonw.exe" "…\run_tray.py"`
 
-(`run_tray.py` pone la carpeta del proyecto en `sys.path` por su cuenta: la clave `Run` no define carpeta de trabajo, así que `pythonw -m hyperx_battery` no encontraría el paquete.) Si mueves la carpeta o el `.exe` portable, destilda y vuelve a tildar la opción (con el instalador no hace falta: queda en una ruta fija).
+(`run_tray.py` puts the project folder in `sys.path` on its own: the `Run` key doesn't define a working directory, so `pythonw -m hyperx_battery` wouldn't find the package.) If you move the folder or the portable `.exe`, uncheck and re-check the option (with the installer this isn't needed: it stays at a fixed path).
 
-Para comprobarlo: `reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v HyperXBattery`.
+To check it: `reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v HyperXBattery`.
 
-## Compilar el .exe y el instalador
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build.ps1          # genera dist\HyperXBattery.exe
-powershell -ExecutionPolicy Bypass -File .\build.ps1 -Test    # corre pytest antes
-powershell -ExecutionPolicy Bypass -File .\build.ps1 -Installer   # el .exe y además dist\HyperXBattery-Setup-<versión>.exe
-```
-
-Usa PyInstaller (`--onefile --noconsole`) con el Python de `.venv`, sobre `run_tray.py`, y le pone el ícono generado por `tools\make_icon.py`. Antes de compilar cierra por su cuenta cualquier `HyperXBattery.exe` en ejecución (un `--onefile` deja dos procesos con ese nombre; para matarlo a mano hay que cerrar ambos). Para comprobar que el .exe carga todo (HID, audio, Tk, pystray):
+## Building the .exe and the installer
 
 ```powershell
-Start-Process .\dist\HyperXBattery.exe --selftest -Wait -PassThru | Select-Object ExitCode   # 0 = OK; detalle en app.log
+powershell -ExecutionPolicy Bypass -File .\build.ps1          # builds dist\HyperXBattery.exe
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Test    # runs pytest first
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Installer   # the .exe plus dist\HyperXBattery-Setup-<version>.exe
 ```
 
-### Compilar el instalador
+It uses PyInstaller (`--onefile --noconsole`) with the `.venv` Python, on `run_tray.py`, and applies the icon generated by `tools\make_icon.py`. Before building, it closes any running `HyperXBattery.exe` on its own (a `--onefile` build leaves two processes with that name; to kill it by hand you have to close both). To check that the .exe loads everything (HID, audio, Tk, pystray):
 
-Necesita [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 o superior. Si no lo tienes:
+```powershell
+Start-Process .\dist\HyperXBattery.exe --selftest -Wait -PassThru | Select-Object ExitCode   # 0 = OK; details in app.log
+```
+
+### Building the installer
+
+It needs [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 or later. If you don't have it:
 
 ```powershell
 winget install --id JRSoftware.InnoSetup -e --accept-source-agreements --accept-package-agreements
 ```
 
-`build.ps1 -Installer` busca `ISCC.exe` en `Program Files (x86)`, `Program Files`, `%LOCALAPPDATA%\Programs\Inno Setup 6` y el `PATH` (si falta, lo avisa antes de compilar nada y repite el comando de arriba), compila el `.exe` y luego `installer\HyperXBattery.iss`, y deja `dist\HyperXBattery-Setup-<versión>.exe`. La versión se lee de `__version__` en `hyperx_battery\__init__.py` y se pasa a Inno como `/DAppVersion=` (no está escrita en el script). A mano: `ISCC.exe /DAppVersion=1.2.0 installer\HyperXBattery.iss` (necesita `dist\HyperXBattery.exe` y `build\HyperXBattery.ico`, que genera `build.ps1`).
+`build.ps1 -Installer` looks for `ISCC.exe` in `Program Files (x86)`, `Program Files`, `%LOCALAPPDATA%\Programs\Inno Setup 6` and the `PATH` (if it is missing, it says so before building anything and repeats the command above), builds the `.exe` and then `installer\HyperXBattery.iss`, and leaves `dist\HyperXBattery-Setup-<version>.exe`. The version is read from `__version__` in `hyperx_battery\__init__.py` and passed to Inno as `/DAppVersion=` (it isn't written in the script). By hand: `ISCC.exe /DAppVersion=1.2.0 installer\HyperXBattery.iss` (it needs `dist\HyperXBattery.exe` and `build\HyperXBattery.ico`, which `build.ps1` generates).
 
-Detalles del script:
+Script details:
 
-- **`AppId` fijo** (no lo cambies): es lo que hace que una versión nueva reemplace a la instalada. Guarda el `.iss` como UTF-8 **con BOM** (tiene tildes).
-- **Instancia en ejecución**: el script usa `AppMutex=Local\HyperXBatteryTray`, el mismo mutex que crea la app (Inno ve los mutex `Local\` de la misma sesión), y además busca procesos `HyperXBattery.exe` del usuario, porque un `--onefile` tarda unos segundos en desempaquetarse antes de crear el mutex y deja dos procesos con ese nombre.
-- **Clave de inicio**: `HKCU\…\Run\HyperXBattery` = `"{app}\HyperXBattery.exe"`, igual que `autostart.build_command()`; se borra con `uninsdeletevalue` y, si la creó el menú de la app, al desinstalar también si apunta a esta instalación.
-- `tests\test_installer.py` comprueba que el mutex, la clave `Run`, el nombre del `.exe` y la carpeta de datos del `.iss` coinciden con el código Python.
+- **Fixed `AppId`** (don't change it): it is what makes a new version replace the installed one. Save the `.iss` as UTF-8 **with BOM** (it contains accented characters).
+- **Running instance**: the script uses `AppMutex=Local\HyperXBatteryTray`, the same mutex the app creates (Inno sees `Local\` mutexes from the same session), and it also looks for the user's `HyperXBattery.exe` processes, because a `--onefile` build takes a few seconds to unpack before it creates the mutex and leaves two processes with that name.
+- **Startup key**: `HKCU\…\Run\HyperXBattery` = `"{app}\HyperXBattery.exe"`, the same as `autostart.build_command()`; it is removed with `uninsdeletevalue` and, if the app's menu created it, on uninstall also when it points to this installation.
+- `tests\test_installer.py` checks that the mutex, the `Run` key, the `.exe` name and the data folder in the `.iss` match the Python code.
 
-## Modo debug y pruebas sin auricular
+## Debug mode and testing without the headset
 
-| Opción | Para qué sirve |
+| Option | What it's for |
 |---|---|
-| `--debug-hid` | Imprime en la consola **todos** los reportes HID crudos de las 4 colecciones (`[hora] HID FF90/0303  21 ff 05 …`). Úsalo para descubrir los eventos de mute: con la app corriendo, levanta y baja el brazo del micrófono y mira qué línea nueva aparece. En el .exe abre una consola propia. |
-| `--simulate-percent N` | No toca el auricular: simula una batería de N % (prueba el color del ícono y los avisos, p. ej. `--simulate-percent 15`). No usa el historial real ni reproduce el tono. |
-| `--simulate-charging` | Con lo anterior, simula una carga que empieza desde ese % (el número estimado en lugar del rayo; p. ej. `--simulate-percent 82 --simulate-charging`). No guarda `charge_state.json`. |
-| `--no-keepalive` | Esta ejecución no reproduce el tono. |
-| `--selftest` | Comprueba que cargan las dependencias y sale (código 0 si todo bien). |
-| `python -m hyperx_battery.session` | Imprime cada segundo si la sesión está bloqueada (las dos señales usadas) y el tiempo de inactividad. Útil para probar Win+L. |
+| `--debug-hid` | Prints **all** raw HID reports from the 4 collections to the console (`[time] HID FF90/0303  21 ff 05 …`). Use it to discover the mute events: with the app running, raise and lower the microphone boom and see which new line appears. In the .exe it opens its own console. |
+| `--simulate-percent N` | Doesn't touch the headset: simulates an N% battery (tests the icon color and the alerts, e.g. `--simulate-percent 15`). It doesn't use the real history or play the tone. |
+| `--simulate-charging` | Together with the above, simulates a charge starting from that percentage (the estimated number instead of the bolt; e.g. `--simulate-percent 82 --simulate-charging`). It doesn't save `charge_state.json`. |
+| `--no-keepalive` | This run doesn't play the tone. |
+| `--selftest` | Checks that the dependencies load and exits (code 0 if all is well). |
+| `python -m hyperx_battery.session` | Prints every second whether the session is locked (the two signals used) and the idle time. Useful for testing Win+L. |
 
-Los reportes desconocidos se registran siempre en `app.log` a nivel DEBUG (hasta 20 repeticiones de cada uno). Variable de entorno `HYPERX_BATTERY_DATA_DIR` cambia la carpeta de datos (útil para pruebas).
+Unknown reports are always logged in `app.log` at DEBUG level (up to 20 repetitions of each). The environment variable `HYPERX_BATTERY_DATA_DIR` changes the data folder (useful for tests).
 
-## Datos
+## Data
 
-Todo en `%APPDATA%\HyperXBattery\`: `config.json`, `history.sqlite`, `charge_state.json`, `audio_state.json`, `app.log` (rotativo, 1 MB × 4 archivos). Desinstalar la app no los borra salvo que lo pidas en la pregunta final del desinstalador.
+Everything lives in `%APPDATA%\HyperXBattery\`: `config.json`, `history.sqlite`, `charge_state.json`, `audio_state.json`, `app.log` (rotating, 1 MB × 4 files). Uninstalling the app doesn't delete them unless you ask for it in the uninstaller's final question.
+
+## Privacy
+
+HyperX Battery makes no network connections and collects no telemetry. Everything stays on your computer, in `%APPDATA%\HyperXBattery`: the app only talks to the USB dongle over HID, to your local audio devices and to the Windows registry.
 
 ## Tests
 
@@ -205,46 +213,54 @@ Todo en `%APPDATA%\HyperXBattery\`: `config.json`, `history.sqlite`, `charge_sta
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-Cubren la lógica pura (curva mV→%, mediana, histéresis, ruido de ±2 mV, carga, tiempo restante, decisión de pausa del anti-apagado, avisos de batería baja, estimación de carga y aprendizaje de la tasa), el lector HID contra un `hid` falso (apagado/encendido, desenchufar y volver a enchufar, eventos de mute), el controlador, la decisión de cambio de audio contra un backend falso (encender / apagar, dispositivos fijos de apagado y su respaldo, arranque con el auricular apagado, cambio manual respetado, dispositivo desaparecido, espera y cancelación, persistencia), la configuración, el registro (con un `winreg` falso), la ventana de historial y que el script del instalador coincida con el código (mutex, clave `Run`, nombre del `.exe`). No necesitan el auricular ni Inno Setup.
+They cover the pure logic (mV→% curve, median, hysteresis, ±2 mV noise, charging, remaining time, the keep-alive pause decision, low-battery alerts, charge estimation and rate learning), the HID reader against a fake `hid` (power off/on, unplugging and replugging, mute events), the controller, the audio-switch decision against a fake backend (power on / off, fixed devices on power-off and their fallback, starting with the headset off, a manual change being respected, a device disappearing, the delay and its cancellation, persistence), the configuration, the registry handling (with a fake `winreg`), the history window, and that the installer script matches the code (mutex, `Run` key, `.exe` name). They need neither the headset nor Inno Setup.
 
-## Estructura
+## Project structure
 
 ```
 hyperx_battery/
-  __main__.py       arranque, instancia única, logging, cableado, --selftest
-  app.py            Controller: estado, avisos, historial, anti-apagado (hilo principal)
-  config.py         dataclass + JSON con valores por defecto y validación
-  protocol.py       constantes y decodificación de reportes HID (pura)
-  device.py         HID: buscar, abrir las 4 colecciones, hilos lectores, consulta, reconexión
-  battery.py        mV→%, suavizado, histéresis, carga, presencia, avisos (puro)
-  charge.py         estimación por tiempo al cargar, aprendizaje de la tasa, estado en JSON
-  audio_switch.py   audio predeterminado: decisiones, JSON de estado, COM (IPolicyConfig), hilo
-  keepalive.py      tono, decisión de pausa, hilo del stream WASAPI con reintentos
-  session.py        bloqueo de sesión e inactividad (ctypes)
-  history.py        agregado por minuto, SQLite, tiempo restante, ayudas del gráfico
-  tray.py           ícono (Pillow), textos, menú y notificaciones (pystray)
-  history_window.py ventana tkinter con el gráfico en Canvas
-  autostart.py      clave Run del registro
-run_tray.py         lanzador (entrada de PyInstaller y de la clave Run)
+  __main__.py       startup, single instance, logging, wiring, --selftest
+  app.py            Controller: state, alerts, history, keep-alive (main thread)
+  config.py         dataclass + JSON with defaults and validation
+  protocol.py       constants and decoding of HID reports (pure)
+  device.py         HID: find, open the 4 collections, reader threads, polling, reconnection
+  battery.py        mV→%, smoothing, hysteresis, charging, presence, alerts (pure)
+  charge.py         time-based charge estimate, rate learning, state in JSON
+  audio_switch.py   default audio: decisions, state JSON, COM (IPolicyConfig), thread
+  keepalive.py      tone, pause decision, WASAPI stream thread with retries
+  session.py        session lock and idle time (ctypes)
+  history.py        per-minute aggregate, SQLite, remaining time, chart helpers
+  tray.py           icon (Pillow), texts, menu and notifications (pystray)
+  history_window.py tkinter window with the chart on a Canvas
+  autostart.py      Run registry key
+run_tray.py         launcher (PyInstaller entry point and Run key target)
 installer/
-  HyperXBattery.iss script de Inno Setup 6 (instalador por usuario)
+  HyperXBattery.iss Inno Setup 6 script (per-user installer)
 tests/              pytest
 tools/              probe_battery.py, keepalive_test.py, make_icon.py
 build.ps1  requirements.txt  requirements-dev.txt  pytest.ini  PLAN.md
 ```
 
-### Herramientas (`tools\`)
+### Tools (`tools\`)
 
-- `probe_battery.py`: pide la batería una vez y muestra el reporte crudo (si no responde, el auricular está apagado).
-- `keepalive_test.py silence|tone [minutos] [amp] [hz]`: prueba larga del anti-apagado; registra en `tools\keepalive_test.log`.
-- `make_icon.py`: genera `build\HyperXBattery.ico`.
+- `probe_battery.py`: requests the battery once and shows the raw report (if it doesn't answer, the headset is off).
+- `keepalive_test.py silence|tone [minutes] [amp] [hz]`: long keep-alive test; logs to `tools\keepalive_test.log`.
+- `make_icon.py`: generates `build\HyperXBattery.ico`.
 
-## Límites conocidos
+## Known limitations
 
-- El % depende de la curva mV→% (`battery.py`); es una aproximación. La estimación de horas restantes extrapola una recta, así que al principio de la descarga (zona plana de la curva) tiende a ser optimista.
-- Los eventos de mute y de encendido/apagado por HID no están verificados en este modelo (ver `--debug-hid`).
-- Las notificaciones de batería baja no se recuerdan entre reinicios de la app: si la reinicias con la batería por debajo del umbral, avisa de nuevo.
-- La estimación al cargar es aproximada: asume una tasa constante, y la real baja cerca del 100 %.
-- El cambio de audio usa una interfaz COM no documentada de Windows (`IPolicyConfig`); solo se probó en Windows 11. Con varios dispositivos que contengan el texto buscado se usa el primero activo.
-- El dispositivo fijo de apagado se aplica al apagarse el auricular y al arrancar la app con el auricular apagado. Si más tarde Windows vuelve a dejar el HyperX como predeterminado con el auricular apagado (p. ej. al reenchufar el dongle), no se corrige hasta el próximo apagado o reinicio de la app.
-- Con el auricular apagado el dongle sigue ahí, pero no hay forma de leer nada: el ícono queda gris hasta que se prende.
+- The percentage depends on the mV→% curve (`battery.py`); it is an approximation. The remaining-hours estimate extrapolates a straight line, so at the start of the discharge (the flat part of the curve) it tends to be optimistic.
+- The mute and power on/off events over HID are not verified on this model (see `--debug-hid`).
+- Low-battery notifications aren't remembered across app restarts: if you restart the app with the battery below the threshold, it alerts again.
+- The charge estimate is approximate: it assumes a constant rate, and the real one drops near 100%.
+- Audio switching uses an undocumented Windows COM interface (`IPolicyConfig`); it has only been tested on Windows 11. If several devices contain the search text, the first active one is used.
+- The fixed power-off device is applied when the headset turns off and when the app starts with the headset off. If Windows later makes the HyperX the default again while the headset is off (e.g. when replugging the dongle), it isn't corrected until the next power-off or app restart.
+- With the headset off the dongle is still there, but there is no way to read anything: the icon stays grey until the headset turns on.
+
+## Disclaimer
+
+HyperX Battery is an independent, unofficial project. It is not affiliated with, endorsed by, or sponsored by HyperX or HP Inc. HyperX and Cloud Flight are trademarks of their respective owners.
+
+## License
+
+[MIT](LICENSE).
