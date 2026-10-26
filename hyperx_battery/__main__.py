@@ -291,6 +291,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             cfg.auto_switch_device_match,
             # runs on the audio worker thread: hop to the main thread for the toast
             on_result=lambda text: controller.post(lambda: controller.audio_switched(text)),
+            off_playback_match=cfg.off_playback_match,
+            off_capture_match=cfg.off_capture_match,
         )
 
     history_window = HistoryWindow(

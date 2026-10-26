@@ -68,7 +68,7 @@ class Controller:
         self._request_quit = request_quit
         self._wall = wall
         self._clock = clock
-        self._audio = audio                     # AudioService-like: engage() / restore(), both non-blocking
+        self._audio = audio                     # AudioService-like: engage() / restore() ("headset is off"), both non-blocking
         self.ui: Optional[Any] = None           # set by the caller (TrayUI-like)
 
         self._queue: "queue.Queue[Any]" = queue.Queue()
@@ -226,8 +226,10 @@ class Controller:
             self._audio.engage()
 
     def _audio_headset_off(self, explicit: bool) -> None:
-        """An explicit power-off restores at once; an inferred one (missed polls,
-        lost dongle) must hold for ``auto_switch_off_confirm_s`` first."""
+        """An explicit power-off moves the defaults off the headset at once; an
+        inferred one (missed polls, lost dongle) must hold for
+        ``auto_switch_off_confirm_s`` first. The same path runs when the app
+        starts with the headset off, so a HyperX left as the default gets fixed."""
         if not self._audio_active() or self._audio_phase == "restored":
             return
         confirm = self.cfg.auto_switch_off_confirm_s

@@ -46,6 +46,10 @@ _LIMITS: Dict[str, tuple] = {
     "auto_switch_off_confirm_s": (0.0, 600.0),
 }
 
+# Text options where an empty string is a valid value (it turns the feature off)
+# instead of "invalid, use the default".
+_ALLOW_EMPTY = frozenset({"off_playback_match", "off_capture_match"})
+
 
 @dataclass
 class Config:
@@ -69,6 +73,8 @@ class Config:
     auto_switch_audio: bool = True
     auto_switch_device_match: str = "HyperX Cloud Flight"   # substring of the endpoint name
     auto_switch_off_confirm_s: float = 20.0                 # confirm an inferred "off" this long before restoring
+    off_playback_match: str = "Realtek"   # headset off: default output = first endpoint containing this ("" = remembered one)
+    off_capture_match: str = "Brio"       # headset off: default microphone = first endpoint containing this ("" = remembered one)
     # Notifications
     notify_low_battery: bool = True
     low_battery_thresholds: List[int] = field(default_factory=lambda: [20, 10])
@@ -167,6 +173,8 @@ def _coerce(name: str, value: Any, default: Any) -> Any:
     if isinstance(default, str):
         if isinstance(value, str) and value.strip():
             return value
+        if isinstance(value, str) and name in _ALLOW_EMPTY:
+            return ""
         log.warning("config %s: expected non-empty text, got %r; using default", name, value)
         return default
     if isinstance(default, list):

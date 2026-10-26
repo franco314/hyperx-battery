@@ -3,9 +3,12 @@
 The USB dongle stays plugged in while the headset is off, so Windows never
 switches the default playback / recording device by itself. When the headset
 turns on, :class:`AudioSwitcher` remembers the current defaults and makes the
-HyperX output and microphone the default (all three roles); when it turns off
-it puts the remembered devices back, but only if the default is still the
-HyperX (a device the user picked meanwhile is respected).
+HyperX output and microphone the default (all three roles). When it turns off,
+each flow goes to its configured "off" device (``off_playback_match`` /
+``off_capture_match``: a fixed output and microphone) or, if that flow has none
+configured or no such device is active, back to the remembered device. It only
+does so if the default is still the HyperX (a device the user picked meanwhile
+is respected).
 
 Layers:
 
@@ -144,12 +147,26 @@ def save_saved(path: Optional[Path], saved: SavedDevices) -> None:
 # --------------------------------------------------------------------------
 class AudioSwitcher:
     """Remember / switch / restore. Methods return the text of the single
-    notification to show for the switch, or ``None`` if nothing changed."""
+    notification to show for the switch, or ``None`` if nothing changed.
 
-    def __init__(self, backend: AudioBackend, state_path: Optional[Path], match: str) -> None:
+    ``match`` finds the headset endpoints. ``off_playback_match`` /
+    ``off_capture_match`` (case-insensitive substrings of the endpoint name)
+    pick the fixed device each flow goes to when the headset turns off; empty
+    means "put back whatever was remembered".
+    """
+
+    def __init__(
+        self,
+        backend: AudioBackend,
+        state_path: Optional[Path],
+        match: str,
+        off_playback_match: str = "",
+        off_capture_match: str = "",
+    ) -> None:
         self._backend = backend
         self._path = state_path
         self._match = match
+        self._off_match = {PLAYBACK: off_playback_match.strip(), CAPTURE: off_capture_match.strip()}
         self.saved = load_saved(state_path)
 
     def _persist(self) -> None:
@@ -191,7 +208,11 @@ class AudioSwitcher:
         return True
 
     def restore(self) -> Optional[str]:
-        """Headset turned off: put the remembered devices back (if still sensible)."""
+        """Headset is off: move each flow that is still on the headset to its
+        "off" device (the fixed match, else the remembered one).
+
+        Also the job that runs at startup with the headset off: a default that
+        is still the HyperX gets fixed, anything else is left alone."""
         restored: Dict[str, Endpoint] = {}
         for flow in FLOWS:
             try:
@@ -204,11 +225,12 @@ class AudioSwitcher:
         self._persist()
         if not restored:
             return None
-        return f"Audio: {(restored.get(PLAYBACK) or restored[CAPTURE]).name}"
+        return "Audio: " + " · ".join(restored[f].name for f in FLOWS if f in restored)
 
     def _restore_flow(self, flow: str) -> Optional[Endpoint]:
-        target = self.saved.get(flow)
-        if target is None:
+        saved = self.saved.get(flow)
+        fixed = self._off_match[flow]
+        if saved is None and not fixed:
             return None
         self.saved.put(flow, None)          # whatever happens below, this is consumed
         current = self._backend.default_endpoint(flow)
@@ -216,13 +238,31 @@ class AudioSwitcher:
             log.info("Default %s is %s, not the headset: leaving it as the user set it",
                      flow, current.name if current else "(none)")
             return None
-        if not any(ep.id == target.id for ep in self._backend.active_endpoints(flow)):
-            log.warning("Saved %s device %r no longer exists; leaving the default as it is",
-                        flow, target.name)
+        active = self._backend.active_endpoints(flow)
+        target = self._off_target(flow, active) if fixed else None
+        if fixed and target is None:
+            log.warning("No active %s endpoint matches %r; %s", flow, fixed,
+                        "using the remembered device" if saved is not None
+                        else "leaving the default as it is")
+        if target is None and saved is not None:
+            if any(ep.id == saved.id for ep in active):
+                target = saved
+            else:
+                log.warning("Saved %s device %r no longer exists; leaving the default as it is",
+                            flow, saved.name)
+        if target is None:
             return None
         self._backend.set_default(target.id)
         log.info("Default %s restored -> %s", flow, target.name)
         return target
+
+    def _off_target(self, flow: str, active: Sequence[Endpoint]) -> Optional[Endpoint]:
+        """First active endpoint matching the flow's "off" text (never the headset itself)."""
+        match = self._off_match[flow]
+        for ep in active:
+            if name_matches(ep.name, match) and not name_matches(ep.name, self._match):
+                return ep
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -244,9 +284,14 @@ class AudioService:
         match: str,
         on_result: Callable[[str], None],
         backend_factory: Optional[Callable[[], AudioBackend]] = None,
+        *,
+        off_playback_match: str = "",
+        off_capture_match: str = "",
     ) -> None:
         self._state_path = state_path
         self._match = match
+        self._off_playback_match = off_playback_match
+        self._off_capture_match = off_capture_match
         self._on_result = on_result
         self._factory = backend_factory
         self._jobs: "queue.Queue[Optional[str]]" = queue.Queue()
@@ -282,7 +327,10 @@ class AudioService:
                     return
                 try:
                     if switcher is None:
-                        switcher = AudioSwitcher(factory(), self._state_path, self._match)
+                        switcher = AudioSwitcher(
+                            factory(), self._state_path, self._match,
+                            self._off_playback_match, self._off_capture_match,
+                        )
                     text = switcher.engage() if job == "engage" else switcher.restore()
                     if text:
                         self._on_result(text)

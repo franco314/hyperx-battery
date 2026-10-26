@@ -1,8 +1,10 @@
 """Controller logic with fake UI / keep-alive (no hardware, no tkinter)."""
 import pytest
 
+from hyperx_battery import audio_switch as asw
 from hyperx_battery import battery
 from hyperx_battery.app import Controller
+from hyperx_battery.audio_switch import AudioSwitcher, Endpoint
 from hyperx_battery.config import Config
 from hyperx_battery.device import BatteryEvent, DongleEvent, MuteEvent, PresenceEvent
 from hyperx_battery.history import HistoryStore, Sample
@@ -48,6 +50,34 @@ class FakeAudio:
         self.calls.append("restore")
 
 
+PLAYBACK, CAPTURE = asw.PLAYBACK, asw.CAPTURE
+LG = Endpoint("out-lg", "1 - LG ULTRAGEAR (AMD High Definition Audio Device)")
+REALTEK = Endpoint("out-realtek", "Altavoces (Realtek(R) Audio)")
+HX_OUT = Endpoint("out-hyperx", "Altavoces (HyperX Cloud Flight for PS)")
+BRIO = Endpoint("in-brio", "Micrófono (Brio 100)")
+HX_MIC = Endpoint("in-hyperx", "Micrófono (HyperX Cloud Flight for PS)")
+
+
+class MiniBackend(asw.AudioBackend):
+    """Just enough of an audio backend for the Controller + AudioSwitcher tests."""
+
+    def __init__(self, playback, capture):
+        self.endpoints = {PLAYBACK: [LG, HX_OUT, REALTEK], CAPTURE: [BRIO, HX_MIC]}
+        self.defaults = {PLAYBACK: playback, CAPTURE: capture}
+
+    def default_endpoint(self, flow):
+        return self.defaults[flow]
+
+    def active_endpoints(self, flow):
+        return list(self.endpoints[flow])
+
+    def set_default(self, endpoint_id):
+        for flow, eps in self.endpoints.items():
+            for ep in eps:
+                if ep.id == endpoint_id:
+                    self.defaults[flow] = ep
+
+
 class Rig:
     def __init__(self, tmp_path, cfg=None, wall_now=1_000_000.0, audio=False):
         self.cfg = cfg or Config()
@@ -60,7 +90,7 @@ class Rig:
         self.t = 0.0
         self.wall_now = wall_now
         self.mono = 5000.0
-        self.audio = FakeAudio() if audio else None
+        self.audio = FakeAudio() if audio is True else (audio or None)
         self.c = Controller(
             self.cfg, self.cfg_path, tmp_path, self.store, self.ka,
             audio=self.audio,
@@ -558,7 +588,7 @@ def test_startup_with_headset_off_still_restores_stale_state_after_the_wait(tmp_
     assert rig.audio.calls == []
     rig.mono += 21
     rig.c.process_pending()
-    assert rig.audio.calls == ["restore"]                            # no-op for the switcher if nothing is saved
+    assert rig.audio.calls == ["restore"]                            # the switcher fixes a HyperX default, else does nothing
 
 
 def test_two_cycles(tmp_path):
@@ -602,6 +632,60 @@ def test_disabling_cancels_a_pending_restore(tmp_path):
     rig.mono += 100
     rig.c.process_pending()
     assert rig.audio.calls == ["engage"]
+
+
+class InlineAudio:
+    """AudioService stand-in that runs a real AudioSwitcher on the calling thread,
+    handing its toast text to ``on_result`` like the worker does."""
+
+    def __init__(self, switcher):
+        self.switcher = switcher
+        self.on_result = lambda text: None
+
+    def _report(self, text):
+        if text:
+            self.on_result(text)
+
+    def engage(self):
+        self._report(self.switcher.engage())
+
+    def restore(self):
+        self._report(self.switcher.restore())
+
+
+def switcher_rig(tmp_path, backend, **cfg):
+    """Controller wired to a real AudioSwitcher over a fake backend, with the app's default fixed devices."""
+    c = Config(**cfg)
+    switcher = AudioSwitcher(backend, tmp_path / "audio_state.json", c.auto_switch_device_match,
+                             c.off_playback_match, c.off_capture_match)
+    audio = InlineAudio(switcher)
+    rig = Rig(tmp_path, c, audio=audio)
+    audio.on_result = rig.c.audio_switched
+    return rig
+
+
+def test_startup_with_headset_off_and_hyperx_mic_stuck_as_default_moves_it_after_the_wait(tmp_path):
+    backend = MiniBackend(playback=REALTEK, capture=HX_MIC)           # the headset is off, its mic is still the default
+    rig = switcher_rig(tmp_path, backend)
+    rig.send(DongleEvent(True), PresenceEvent(False))                 # app started while the headset is off
+    rig.mono += 19
+    rig.c.process_pending()
+    assert backend.defaults[CAPTURE] == HX_MIC                        # same confirm delay as ever
+    rig.mono += 2
+    rig.c.process_pending()
+    assert backend.defaults == {PLAYBACK: REALTEK, CAPTURE: BRIO}
+    assert rig.ui.notes == ["Audio: Micrófono (Brio 100)"]            # one toast, only what changed
+
+
+def test_full_cycle_with_the_fixed_off_devices_and_one_toast_per_switch(tmp_path):
+    backend = MiniBackend(playback=LG, capture=HX_MIC)
+    rig = switcher_rig(tmp_path, backend)
+    rig.power_on()
+    assert backend.defaults == {PLAYBACK: HX_OUT, CAPTURE: HX_MIC}
+    rig.send(PresenceEvent(False, explicit=True))
+    assert backend.defaults == {PLAYBACK: REALTEK, CAPTURE: BRIO}     # not the LG the user had before
+    assert rig.ui.notes == ["Audio: HyperX Cloud Flight",
+                            "Audio: Altavoces (Realtek(R) Audio) · Micrófono (Brio 100)"]
 
 
 def test_audio_toast_is_one_notification_per_switch(tmp_path):

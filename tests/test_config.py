@@ -103,3 +103,27 @@ def test_audio_switch_defaults_and_validation():
     assert c.auto_switch_audio is False and c.auto_switch_off_confirm_s == 0
     assert c.auto_switch_device_match == "HyperX Cloud Flight"
     assert Config.from_dict({"auto_switch_off_confirm_s": 99999}).auto_switch_off_confirm_s == 600
+
+
+def test_off_device_matches_default_to_realtek_and_brio():
+    c = Config()
+    assert c.off_playback_match == "Realtek" and c.off_capture_match == "Brio"
+    assert Config.from_dict({}).off_playback_match == "Realtek"          # old config files get the defaults
+
+
+def test_off_device_matches_can_be_changed_and_emptied():
+    c = Config.from_dict({"off_playback_match": "Speakers", "off_capture_match": ""})
+    assert c.off_playback_match == "Speakers"
+    assert c.off_capture_match == ""                                      # empty = remember / restore, not "invalid"
+    assert Config.from_dict({"off_playback_match": "   "}).off_playback_match == ""
+
+
+def test_off_device_matches_with_a_wrong_type_use_the_defaults():
+    c = Config.from_dict({"off_playback_match": 5, "off_capture_match": None})
+    assert c.off_playback_match == "Realtek" and c.off_capture_match == "Brio"
+
+
+def test_empty_off_device_match_survives_a_save_and_load(tmp_path):
+    path = tmp_path / "config.json"
+    Config(off_capture_match="").save(path)
+    assert Config.load(path).off_capture_match == ""
