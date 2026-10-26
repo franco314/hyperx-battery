@@ -35,8 +35,21 @@ class FakeKeepAlive:
         self.state = "running" if wanted else "idle"
 
 
+class FakeAudio:
+    """Stands in for AudioService: records engage / restore calls."""
+
+    def __init__(self):
+        self.calls = []
+
+    def engage(self):
+        self.calls.append("engage")
+
+    def restore(self):
+        self.calls.append("restore")
+
+
 class Rig:
-    def __init__(self, tmp_path, cfg=None, wall_now=1_000_000.0):
+    def __init__(self, tmp_path, cfg=None, wall_now=1_000_000.0, audio=False):
         self.cfg = cfg or Config()
         self.cfg_path = tmp_path / "config.json"
         self.store = HistoryStore(":memory:")
@@ -46,9 +59,13 @@ class Rig:
         self.shown = 0
         self.t = 0.0
         self.wall_now = wall_now
+        self.mono = 5000.0
+        self.audio = FakeAudio() if audio else None
         self.c = Controller(
             self.cfg, self.cfg_path, tmp_path, self.store, self.ka,
+            audio=self.audio,
             show_history=self._show, request_quit=self._quit, wall=lambda: self.wall_now,
+            clock=lambda: self.mono,
         )
         self.c.ui = self.ui
 
@@ -459,3 +476,149 @@ def test_low_battery_notifier_ignores_the_estimate(tmp_path):
     for _ in range(5):
         rig.battery(round(battery.percent_to_mv(15)))            # unplugged at 15 %: warns again
     assert len(rig.ui.notes) == n + 1
+
+
+# -- automatic default audio device ---------------------------------------------------------------
+def audio_rig(tmp_path, **cfg):
+    return Rig(tmp_path, Config(**cfg), audio=True)
+
+
+def test_headset_on_engages_the_audio_switch(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.power_on()
+    assert rig.audio.calls == ["engage"]
+
+
+def test_explicit_power_off_restores_immediately(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.power_on()
+    rig.send(PresenceEvent(False, explicit=True))
+    assert rig.audio.calls == ["engage", "restore"]
+    rig.mono += 120
+    rig.c.process_pending()
+    assert rig.audio.calls == ["engage", "restore"]                  # and only once
+
+
+def test_inferred_off_waits_for_confirmation_then_restores(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.power_on()
+    rig.send(PresenceEvent(False))
+    assert rig.audio.calls == ["engage"]
+    rig.mono += 19
+    rig.c.process_pending()
+    assert rig.audio.calls == ["engage"]                             # not yet
+    rig.mono += 2
+    rig.c.process_pending()
+    assert rig.audio.calls == ["engage", "restore"]
+    rig.mono += 100
+    rig.c.process_pending()
+    assert rig.audio.calls == ["engage", "restore"]
+
+
+def test_quick_power_on_cancels_the_pending_restore(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.power_on()
+    rig.send(PresenceEvent(False))                                   # out of range for a moment
+    rig.mono += 10
+    rig.send(PresenceEvent(True))
+    rig.mono += 60
+    rig.c.process_pending()
+    assert rig.audio.calls == ["engage", "engage"]                   # no restore ever; engage is a no-op for the switcher
+
+
+def test_explicit_off_during_the_wait_restores_at_once(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.power_on()
+    rig.send(PresenceEvent(False))
+    rig.send(PresenceEvent(False, explicit=True))
+    assert rig.audio.calls == ["engage", "restore"]
+
+
+def test_the_wait_is_not_extended_by_repeated_off_signals(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.power_on()
+    rig.send(DongleEvent(False))                                     # dongle lost, then the presence follows
+    rig.mono += 15
+    rig.send(PresenceEvent(False))
+    rig.mono += 6
+    rig.c.process_pending()
+    assert rig.audio.calls == ["engage", "restore"]
+
+
+def test_zero_confirmation_delay_restores_at_once(tmp_path):
+    rig = audio_rig(tmp_path, auto_switch_off_confirm_s=0)
+    rig.power_on()
+    rig.send(PresenceEvent(False))
+    assert rig.audio.calls == ["engage", "restore"]
+
+
+def test_startup_with_headset_off_still_restores_stale_state_after_the_wait(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.send(DongleEvent(True), PresenceEvent(False))                # app started while the headset is off
+    assert rig.audio.calls == []
+    rig.mono += 21
+    rig.c.process_pending()
+    assert rig.audio.calls == ["restore"]                            # no-op for the switcher if nothing is saved
+
+
+def test_two_cycles(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.power_on()
+    rig.send(PresenceEvent(False, explicit=True))
+    rig.send(PresenceEvent(True))
+    rig.send(PresenceEvent(False, explicit=True))
+    assert rig.audio.calls == ["engage", "restore", "engage", "restore"]
+
+
+def test_disabled_option_means_no_switching(tmp_path):
+    rig = audio_rig(tmp_path, auto_switch_audio=False)
+    rig.power_on()
+    rig.send(PresenceEvent(False))
+    rig.send(PresenceEvent(False, explicit=True))
+    rig.mono += 100
+    rig.c.process_pending()
+    assert rig.audio.calls == []
+
+
+def test_toggle_persists_and_enabling_while_on_switches_now(tmp_path):
+    rig = audio_rig(tmp_path, auto_switch_audio=False)
+    rig.power_on()
+    assert rig.audio.calls == []
+    rig.c.toggle_audio_switch()
+    assert rig.audio.calls == ["engage"]
+    assert Config.load(rig.cfg_path).auto_switch_audio is True
+    assert rig.c.tray_actions().audio_switch_enabled() is True
+    rig.c.toggle_audio_switch()
+    assert Config.load(rig.cfg_path).auto_switch_audio is False
+    rig.send(PresenceEvent(False, explicit=True))
+    assert rig.audio.calls == ["engage"]
+
+
+def test_disabling_cancels_a_pending_restore(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.power_on()
+    rig.send(PresenceEvent(False))
+    rig.c.toggle_audio_switch()
+    rig.mono += 100
+    rig.c.process_pending()
+    assert rig.audio.calls == ["engage"]
+
+
+def test_audio_toast_is_one_notification_per_switch(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.c.audio_switched("Audio: HyperX Cloud Flight")
+    assert rig.ui.notes == ["Audio: HyperX Cloud Flight"]
+
+
+def test_exit_does_not_restore(tmp_path):
+    rig = audio_rig(tmp_path)
+    rig.power_on()
+    rig.c.shutdown()
+    assert rig.audio.calls == ["engage"]
+
+
+def test_no_audio_service_is_fine(rig):
+    rig.power_on()
+    rig.send(PresenceEvent(False, explicit=True))
+    rig.c.toggle_audio_switch()
+    assert rig.ui.view.link == "off"

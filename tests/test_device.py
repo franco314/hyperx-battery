@@ -240,6 +240,16 @@ def test_power_off_event_marks_off_immediately(rig):
     assert wait_for(lambda: sink.last_presence() is True)
     fake.inject(0xFF90, [0x64, 0x03])
     assert wait_for(lambda: sink.last_presence() is False, timeout=1.0)
+    assert sink.of(PresenceEvent)[-1].explicit is True              # the headset said so itself
+
+
+def test_off_inferred_from_missed_replies_is_not_explicit(rig):
+    fake, sink, mon = rig
+    mon.start()
+    assert wait_for(lambda: sink.last_presence() is True)
+    fake.headset_on = False
+    assert wait_for(lambda: sink.last_presence() is False)
+    assert sink.of(PresenceEvent)[-1].explicit is False
 
 
 def test_power_on_event_triggers_an_immediate_poll(rig):

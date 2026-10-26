@@ -37,9 +37,15 @@ class DongleEvent:
 
 @dataclass(frozen=True)
 class PresenceEvent:
-    """Headset powered on (True) or off (False), inferred from replies."""
+    """Headset powered on (True) or off (False), inferred from replies.
+
+    ``explicit`` marks an off reported by the headset itself (the ``64 03``
+    power event) as opposed to one inferred from missed polls or a lost
+    dongle, which may just be a brief dropout.
+    """
 
     on: bool
+    explicit: bool = False
 
 
 @dataclass(frozen=True)
@@ -317,7 +323,7 @@ class HeadsetMonitor:
             if report.on:
                 self.poll_now()
             elif self._presence.force_off() is Presence.OFF:
-                self._emit(PresenceEvent(False))
+                self._emit(PresenceEvent(False, explicit=True))
         else:
             self._log_unknown(col, data)
         return False

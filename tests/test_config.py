@@ -91,3 +91,15 @@ def test_data_dir_uses_appdata_and_can_be_overridden(monkeypatch, tmp_path):
     monkeypatch.setenv("HYPERX_BATTERY_DATA_DIR", str(tmp_path / "x"))
     assert data_dir() == tmp_path / "x"
     assert config_path() == tmp_path / "x" / "config.json"
+
+
+def test_audio_switch_defaults_and_validation():
+    c = Config()
+    assert c.auto_switch_audio is True
+    assert c.auto_switch_device_match == "HyperX Cloud Flight"
+    assert c.auto_switch_off_confirm_s == 20
+    c = Config.from_dict({"auto_switch_audio": False, "auto_switch_off_confirm_s": -5,
+                          "auto_switch_device_match": ""})
+    assert c.auto_switch_audio is False and c.auto_switch_off_confirm_s == 0
+    assert c.auto_switch_device_match == "HyperX Cloud Flight"
+    assert Config.from_dict({"auto_switch_off_confirm_s": 99999}).auto_switch_off_confirm_s == 600

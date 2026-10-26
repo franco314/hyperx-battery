@@ -23,6 +23,7 @@ from typing import Any, List, Optional
 
 from . import __version__
 from .app import Controller
+from .audio_switch import STATE_FILE as AUDIO_STATE_FILE, AudioService
 from .config import Config, config_path, data_dir
 from .device import HeadsetMonitor, SimulatedMonitor
 from .history import HistoryStore
@@ -165,6 +166,42 @@ def selftest() -> int:
         idx = find_output_device(list(sd.query_devices()), list(sd.query_hostapis()), "HyperX")
         return f"HyperX WASAPI output index: {idx}"
 
+    def probe_audio_switch() -> str:
+        from .audio_switch import CAPTURE, PLAYBACK, WindowsAudioBackend, _ComApartment
+
+        result: List[str] = []
+
+        def work() -> None:
+            # comtypes initialises COM on the thread that first imports it, and this
+            # (main) thread already has an apartment from PortAudio: use a fresh one,
+            # as the real audio worker does.
+            com = _ComApartment()
+            try:
+                backend = WindowsAudioBackend()
+                counts = {f: len(backend.active_endpoints(f)) for f in (PLAYBACK, CAPTURE)}
+                default = backend.default_endpoint(PLAYBACK)
+                del backend
+                result.append(f"endpoints {counts}, default output: {default.name if default else None}")
+            finally:
+                com.close()
+
+        errors: List[BaseException] = []
+
+        def guarded() -> None:
+            try:
+                work()
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        t = threading.Thread(target=guarded, name="selftest-audio")
+        t.start()
+        t.join(20)
+        if errors:
+            raise errors[0]
+        if not result:
+            raise TimeoutError("audio switch probe did not finish")
+        return result[0]
+
     def probe_icon() -> str:
         from .tray import IconSpec, GREEN, WHITE, render_icon, _load_font
 
@@ -190,6 +227,7 @@ def selftest() -> int:
 
     check("hid", probe_hid)
     check("audio", probe_audio)
+    check("audioswitch", probe_audio_switch)
     check("icon", probe_icon)
     check("tk", probe_tk)
     check("pystray", probe_pystray)
@@ -246,12 +284,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
 
     controller: Controller
+    audio: Optional[AudioService] = None
+    if not simulated:
+        audio = AudioService(
+            directory / AUDIO_STATE_FILE,
+            cfg.auto_switch_device_match,
+            # runs on the audio worker thread: hop to the main thread for the toast
+            on_result=lambda text: controller.post(lambda: controller.audio_switched(text)),
+        )
+
     history_window = HistoryWindow(
         root, store, gap_s=max(180.0, 3 * cfg.history_interval_s),
         extra_info=lambda: controller.view().remaining or "",
     )
     controller = Controller(
         cfg, config_path(directory), directory, store, keepalive,
+        audio=audio,
         simulated=simulated,
         show_history=history_window.show,
         request_quit=root.quit,
@@ -295,6 +343,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         controller.refresh()
         if keepalive is not None:
             keepalive.start()
+        if audio is not None:
+            audio.start()
         session.start()
         monitor.start()
         root.after(PUMP_MS, pump)
@@ -304,7 +354,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     finally:
         log.info("Shutting down")
         for stopper in (monitor.stop, session.stop,
-                        keepalive.stop if keepalive else (lambda: None)):
+                        keepalive.stop if keepalive else (lambda: None),
+                        audio.stop if audio else (lambda: None)):
             try:
                 stopper()
             except Exception:  # noqa: BLE001

@@ -43,6 +43,7 @@ _LIMITS: Dict[str, tuple] = {
     "idle_pause_min": (0.0, 24 * 60.0),
     "keepalive_retry_s": (1.0, 600.0),
     "session_poll_s": (1.0, 60.0),
+    "auto_switch_off_confirm_s": (0.0, 600.0),
 }
 
 
@@ -64,6 +65,10 @@ class Config:
     audio_device_match: str = "HyperX"    # substring of the WASAPI output name
     keepalive_retry_s: float = 10.0
     session_poll_s: float = 5.0
+    # Default audio device switching (see audio_switch.py)
+    auto_switch_audio: bool = True
+    auto_switch_device_match: str = "HyperX Cloud Flight"   # substring of the endpoint name
+    auto_switch_off_confirm_s: float = 20.0                 # confirm an inferred "off" this long before restoring
     # Notifications
     notify_low_battery: bool = True
     low_battery_thresholds: List[int] = field(default_factory=lambda: [20, 10])

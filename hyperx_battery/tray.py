@@ -225,6 +225,8 @@ class TrayActions:
     autostart_enabled: Callable[[], bool]
     open_data_folder: Callable[[], None]
     quit: Callable[[], None]
+    toggle_audio_switch: Callable[[], None] = lambda: None
+    audio_switch_enabled: Callable[[], bool] = lambda: False
 
 
 class TrayUI:
@@ -253,6 +255,8 @@ class TrayUI:
             self._pystray.Menu.SEPARATOR,
             item("Anti-apagado", lambda _icon, _i: a.toggle_keepalive(),
                  checked=lambda _i: a.keepalive_enabled()),
+            item("Cambiar audio automáticamente", lambda _icon, _i: a.toggle_audio_switch(),
+                 checked=lambda _i: a.audio_switch_enabled()),
             item("Ver historial", lambda _icon, _i: a.show_history(), default=True),
             item("Iniciar con Windows", lambda _icon, _i: a.toggle_autostart(),
                  checked=lambda _i: a.autostart_enabled()),

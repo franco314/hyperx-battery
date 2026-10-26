@@ -51,10 +51,12 @@ class Controller:
         store: HistoryStore,
         keepalive: Optional[Any],
         *,
+        audio: Optional[Any] = None,
         simulated: bool = False,
         show_history: Callable[[], None] = lambda: None,
         request_quit: Callable[[], None] = lambda: None,
         wall: Callable[[], float] = time.time,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.cfg = cfg
         self._cfg_path = cfg_path
@@ -65,6 +67,8 @@ class Controller:
         self._show_history = show_history
         self._request_quit = request_quit
         self._wall = wall
+        self._clock = clock
+        self._audio = audio                     # AudioService-like: engage() / restore(), both non-blocking
         self.ui: Optional[Any] = None           # set by the caller (TrayUI-like)
 
         self._queue: "queue.Queue[Any]" = queue.Queue()
@@ -83,6 +87,11 @@ class Controller:
         self._remaining_text: Optional[str] = None
         self._decision = KeepAliveDecision(False, "headset_off")
         self._need_estimate = True
+
+        # default audio device switching: "on" | "pending" (inferred off, waiting
+        # to be confirmed) | "restored" | None (nothing known yet)
+        self._audio_phase: Optional[str] = None
+        self._audio_restore_at: Optional[float] = None
 
         # charge estimate (see charge.py); simulations never touch the real file
         self._charge_path: Optional[Path] = None if simulated else data_dir / STATE_FILE
@@ -104,6 +113,8 @@ class Controller:
             autostart_enabled=autostart.is_enabled,
             open_data_folder=lambda: self.post(self.open_data_folder),
             quit=lambda: self.post(self._request_quit),
+            toggle_audio_switch=lambda: self.post(self.toggle_audio_switch),
+            audio_switch_enabled=lambda: self.cfg.auto_switch_audio,
         )
 
     # -- main-thread processing -----------------------------------------------------
@@ -120,6 +131,7 @@ class Controller:
                     self._handle(item)
             except Exception:  # noqa: BLE001
                 log.exception("Error handling %r", item)
+        self._tick_audio()
 
     def _handle(self, ev: Any) -> None:
         if isinstance(ev, BatteryEvent):
@@ -145,18 +157,23 @@ class Controller:
             # Without the dongle the headset cannot be reached, i.e. "off".
             self._headset = False
             self._headset_gone()
+        if not ev.connected:
+            self._audio_headset_off(explicit=False)
 
     def _on_presence(self, ev: PresenceEvent) -> None:
         was = self._headset
         self._headset = ev.on
         if ev.on:
+            self._audio_headset_on()
             # Off -> on: the old smoothing is meaningless, start fresh.
             self._tracker.reset()
             self._status = None
             self._was_charging = None
             self._need_estimate = True
-        elif was is not False:
-            self._headset_gone()
+        else:
+            self._audio_headset_off(explicit=ev.explicit)
+            if was is not False:
+                self._headset_gone()
 
     def _headset_gone(self) -> None:
         self._flush_history()
@@ -197,6 +214,45 @@ class Controller:
             self._need_estimate = True
         if self._need_estimate:
             self._update_estimate()
+
+    # -- default audio device ------------------------------------------------------
+    def _audio_active(self) -> bool:
+        return self._audio is not None and self.cfg.auto_switch_audio
+
+    def _audio_headset_on(self) -> None:
+        self._audio_restore_at = None           # a dropout that came back: nothing to restore
+        self._audio_phase = "on"
+        if self._audio_active():
+            self._audio.engage()
+
+    def _audio_headset_off(self, explicit: bool) -> None:
+        """An explicit power-off restores at once; an inferred one (missed polls,
+        lost dongle) must hold for ``auto_switch_off_confirm_s`` first."""
+        if not self._audio_active() or self._audio_phase == "restored":
+            return
+        confirm = self.cfg.auto_switch_off_confirm_s
+        if explicit or confirm <= 0:
+            self._audio_restore_now()
+        elif self._audio_phase != "pending":
+            self._audio_phase = "pending"
+            self._audio_restore_at = self._clock() + confirm
+            log.info("Headset looks off; restoring the default audio in %.0f s unless it comes back", confirm)
+
+    def _audio_restore_now(self) -> None:
+        self._audio_restore_at = None
+        self._audio_phase = "restored"
+        self._audio.restore()
+
+    def _tick_audio(self) -> None:
+        if self._audio_restore_at is not None and self._clock() >= self._audio_restore_at:
+            if self._audio_active():
+                self._audio_restore_now()
+            else:
+                self._audio_restore_at = None
+
+    def audio_switched(self, text: str) -> None:
+        """Main-thread callback: the audio worker switched the default device."""
+        self._notify(text)
 
     # -- charge estimate ------------------------------------------------------------
     def _track_charge(self, wall: float, status: BatteryStatus) -> None:
@@ -358,6 +414,19 @@ class Controller:
         log.info("Anti-auto-off switched %s", "on" if self.cfg.keepalive_enabled else "off")
         self._apply_keepalive()
         self._refresh()
+        self._refresh_menu()
+
+    def toggle_audio_switch(self) -> None:
+        self.cfg.auto_switch_audio = not self.cfg.auto_switch_audio
+        self.cfg.save(self._cfg_path)
+        log.info("Automatic audio switching %s", "on" if self.cfg.auto_switch_audio else "off")
+        if not self.cfg.auto_switch_audio:
+            self._audio_restore_at = None       # a pending restore is cancelled too
+            self._audio_phase = None
+        elif self._headset is True:
+            self._audio_headset_on()
+        elif self._headset is False:
+            self._audio_headset_off(explicit=False)
         self._refresh_menu()
 
     def toggle_autostart(self) -> None:
