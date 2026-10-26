@@ -8,6 +8,7 @@ App de bandeja para Windows 11 que muestra la batería del **HyperX Cloud Flight
 - **Aviso de batería baja** (20 % y 10 %, una sola vez por ciclo de descarga).
 - **Historial** en SQLite, tiempo restante estimado y ventana con gráfico de 24 h / 7 días.
 - **Iniciar con Windows** desde el menú.
+- **Instalador de Windows** por usuario (sin permisos de administrador) o `.exe` portable.
 
 Interfaz en español; código e identificadores en inglés.
 
@@ -23,7 +24,39 @@ Para saber qué versión tenés: Administrador de dispositivos → Dispositivos 
 
 Solo Windows (probado en Windows 11).
 
-## Requisitos
+## Instalación
+
+### Con el instalador (recomendado)
+
+1. Descarga `HyperXBattery-Setup-<versión>.exe` desde [Releases](https://github.com/franco314/hyperx-battery/releases), o genéralo tú (ver "Compilar el instalador").
+2. Ábrelo y sigue el asistente (en español o inglés, según el idioma de Windows). Se instala **solo para tu usuario**: no pide permisos de administrador ni muestra el aviso de UAC, y deja el programa en `%LOCALAPPDATA%\Programs\HyperX Battery`. En el menú Inicio siempre crea un acceso directo.
+3. Opciones del asistente:
+
+| Opción | Por defecto |
+|---|---|
+| Acceso directo en el escritorio | desmarcada |
+| **Iniciar con Windows** (escribe la clave `Run`, ver "Iniciar con Windows") | marcada |
+| **Abrir HyperX Battery** al terminar | marcada |
+
+**Aviso de SmartScreen**: el instalador no está firmado digitalmente (un certificado de firma de código es de pago), así que Windows puede mostrar "Windows protegió su PC" la primera vez. Pulsa **Más información → Ejecutar de todas formas**. El instalador sale del script `installer\HyperXBattery.iss` de este repositorio, así que puedes revisarlo o compilarlo tú.
+
+**Actualizar**: ejecuta el instalador de la versión nueva sin desinstalar nada; reemplaza a la anterior y conserva tu configuración e historial. Si HyperX Battery está abierto, el instalador pregunta si cerrarlo y lo cierra por ti (primero con un cierre normal y, si no responde en 5 s, a la fuerza); en una instalación silenciosa lo cierra sin preguntar y lo vuelve a abrir al terminar. La casilla "Iniciar con Windows" parte del estado real: si lo apagaste desde el menú de la bandeja, aparece desmarcada.
+
+**Desinstalar**: *Configuración → Aplicaciones → Aplicaciones instaladas → HyperX Battery → Desinstalar* (o `unins000.exe` en la carpeta de instalación). Cierra la app si está abierta y borra el programa, los accesos directos y la clave de inicio con Windows. Al final pregunta si quieres borrar también tus datos de `%APPDATA%\HyperXBattery` (historial y configuración): la respuesta por defecto es **No**, y una desinstalación silenciosa siempre los conserva.
+
+**Instalación silenciosa** (útil para automatizar):
+
+```powershell
+.\HyperXBattery-Setup-1.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART                       # con "Iniciar con Windows"
+.\HyperXBattery-Setup-1.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /MERGETASKS="!startup" # sin "Iniciar con Windows"
+& "$env:LOCALAPPDATA\Programs\HyperX Battery\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES        # desinstala (conserva los datos)
+```
+
+### Versión portable
+
+El `HyperXBattery.exe` suelto también funciona sin instalar nada: déjalo en una carpeta fija y ábrelo. La clave de "Iniciar con Windows" guarda la ruta absoluta del `.exe`, así que si lo mueves destilda y vuelve a tildar la opción. No uses a la vez la versión portable y la instalada: comparten la instancia única (mutex), la clave de inicio y la carpeta de datos.
+
+## Requisitos para ejecutar desde el código o compilar
 
 - Windows 11, Python 3.14 (el venv del proyecto está en `.venv`).
 - Dependencias de ejecución en `requirements.txt` (`hidapi`, `sounddevice`, `numpy`, `pystray`, `Pillow`, `comtypes`); las de desarrollo (`pytest`, `pyinstaller`) en `requirements-dev.txt`.
@@ -105,18 +138,19 @@ Se crea sola en `%APPDATA%\HyperXBattery\config.json` la primera vez. Edítala c
 
 Desde el menú: **Iniciar con Windows**. Escribe el valor `HyperXBattery` en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, y al destildarlo lo borra. El comando es:
 
-- empaquetado: `"…\dist\HyperXBattery.exe"`
+- empaquetado: `"…\dist\HyperXBattery.exe"`; con el instalador, `"%LOCALAPPDATA%\Programs\HyperX Battery\HyperXBattery.exe"` (la casilla del asistente escribe exactamente este valor, así que el menú de la bandeja lo muestra tildado y puede apagarlo)
 - desde el código: `"…\.venv\Scripts\pythonw.exe" "…\run_tray.py"`
 
-(`run_tray.py` pone la carpeta del proyecto en `sys.path` por su cuenta: la clave `Run` no define carpeta de trabajo, así que `pythonw -m hyperx_battery` no encontraría el paquete.) Si mueves la carpeta o el `.exe`, destilda y vuelve a tildar la opción.
+(`run_tray.py` pone la carpeta del proyecto en `sys.path` por su cuenta: la clave `Run` no define carpeta de trabajo, así que `pythonw -m hyperx_battery` no encontraría el paquete.) Si mueves la carpeta o el `.exe` portable, destilda y vuelve a tildar la opción (con el instalador no hace falta: queda en una ruta fija).
 
 Para comprobarlo: `reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v HyperXBattery`.
 
-## Compilar el .exe
+## Compilar el .exe y el instalador
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build.ps1          # genera dist\HyperXBattery.exe
 powershell -ExecutionPolicy Bypass -File .\build.ps1 -Test    # corre pytest antes
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Installer   # el .exe y además dist\HyperXBattery-Setup-<versión>.exe
 ```
 
 Usa PyInstaller (`--onefile --noconsole`) con el Python de `.venv`, sobre `run_tray.py`, y le pone el ícono generado por `tools\make_icon.py`. Antes de compilar cierra por su cuenta cualquier `HyperXBattery.exe` en ejecución (un `--onefile` deja dos procesos con ese nombre; para matarlo a mano hay que cerrar ambos). Para comprobar que el .exe carga todo (HID, audio, Tk, pystray):
@@ -124,6 +158,23 @@ Usa PyInstaller (`--onefile --noconsole`) con el Python de `.venv`, sobre `run_t
 ```powershell
 Start-Process .\dist\HyperXBattery.exe --selftest -Wait -PassThru | Select-Object ExitCode   # 0 = OK; detalle en app.log
 ```
+
+### Compilar el instalador
+
+Necesita [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 o superior. Si no lo tienes:
+
+```powershell
+winget install --id JRSoftware.InnoSetup -e --accept-source-agreements --accept-package-agreements
+```
+
+`build.ps1 -Installer` busca `ISCC.exe` en `Program Files (x86)`, `Program Files`, `%LOCALAPPDATA%\Programs\Inno Setup 6` y el `PATH` (si falta, lo avisa antes de compilar nada y repite el comando de arriba), compila el `.exe` y luego `installer\HyperXBattery.iss`, y deja `dist\HyperXBattery-Setup-<versión>.exe`. La versión se lee de `__version__` en `hyperx_battery\__init__.py` y se pasa a Inno como `/DAppVersion=` (no está escrita en el script). A mano: `ISCC.exe /DAppVersion=1.1.0 installer\HyperXBattery.iss` (necesita `dist\HyperXBattery.exe` y `build\HyperXBattery.ico`, que genera `build.ps1`).
+
+Detalles del script:
+
+- **`AppId` fijo** (no lo cambies): es lo que hace que una versión nueva reemplace a la instalada. Guarda el `.iss` como UTF-8 **con BOM** (tiene tildes).
+- **Instancia en ejecución**: el script usa `AppMutex=Local\HyperXBatteryTray`, el mismo mutex que crea la app (Inno ve los mutex `Local\` de la misma sesión), y además busca procesos `HyperXBattery.exe` del usuario, porque un `--onefile` tarda unos segundos en desempaquetarse antes de crear el mutex y deja dos procesos con ese nombre.
+- **Clave de inicio**: `HKCU\…\Run\HyperXBattery` = `"{app}\HyperXBattery.exe"`, igual que `autostart.build_command()`; se borra con `uninsdeletevalue` y, si la creó el menú de la app, al desinstalar también si apunta a esta instalación.
+- `tests\test_installer.py` comprueba que el mutex, la clave `Run`, el nombre del `.exe` y la carpeta de datos del `.iss` coinciden con el código Python.
 
 ## Modo debug y pruebas sin auricular
 
@@ -140,7 +191,7 @@ Los reportes desconocidos se registran siempre en `app.log` a nivel DEBUG (hasta
 
 ## Datos
 
-Todo en `%APPDATA%\HyperXBattery\`: `config.json`, `history.sqlite`, `charge_state.json`, `audio_state.json`, `app.log` (rotativo, 1 MB × 4 archivos).
+Todo en `%APPDATA%\HyperXBattery\`: `config.json`, `history.sqlite`, `charge_state.json`, `audio_state.json`, `app.log` (rotativo, 1 MB × 4 archivos). Desinstalar la app no los borra salvo que lo pidas en la pregunta final del desinstalador.
 
 ## Tests
 
@@ -148,7 +199,7 @@ Todo en `%APPDATA%\HyperXBattery\`: `config.json`, `history.sqlite`, `charge_sta
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-Cubren la lógica pura (curva mV→%, mediana, histéresis, ruido de ±2 mV, carga, tiempo restante, decisión de pausa del anti-apagado, avisos de batería baja, estimación de carga y aprendizaje de la tasa), el lector HID contra un `hid` falso (apagado/encendido, desenchufar y volver a enchufar, eventos de mute), el controlador, la decisión de cambio de audio contra un backend falso (encender / apagar, cambio manual respetado, dispositivo desaparecido, espera y cancelación, persistencia), la configuración, el registro (con un `winreg` falso) y la ventana de historial. No necesitan el auricular.
+Cubren la lógica pura (curva mV→%, mediana, histéresis, ruido de ±2 mV, carga, tiempo restante, decisión de pausa del anti-apagado, avisos de batería baja, estimación de carga y aprendizaje de la tasa), el lector HID contra un `hid` falso (apagado/encendido, desenchufar y volver a enchufar, eventos de mute), el controlador, la decisión de cambio de audio contra un backend falso (encender / apagar, cambio manual respetado, dispositivo desaparecido, espera y cancelación, persistencia), la configuración, el registro (con un `winreg` falso), la ventana de historial y que el script del instalador coincida con el código (mutex, clave `Run`, nombre del `.exe`). No necesitan el auricular ni Inno Setup.
 
 ## Estructura
 
@@ -169,6 +220,8 @@ hyperx_battery/
   history_window.py ventana tkinter con el gráfico en Canvas
   autostart.py      clave Run del registro
 run_tray.py         lanzador (entrada de PyInstaller y de la clave Run)
+installer/
+  HyperXBattery.iss script de Inno Setup 6 (instalador por usuario)
 tests/              pytest
 tools/              probe_battery.py, keepalive_test.py, make_icon.py
 build.ps1  requirements.txt  requirements-dev.txt  pytest.ini  PLAN.md
