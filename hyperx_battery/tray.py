@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import math
 import threading
 from dataclasses import dataclass
-from typing import Callable, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class IconSpec:
     bg: Color
     fg: Color
     muted: bool = False
-    approx: bool = False                # label is an estimate: drawn dimmer over a faint bolt
+    approx: bool = False                # label is an estimate: drawn in the lighter APPROX_FG, no bolt
 
 
 def percent_color(percent: int) -> Color:
@@ -67,19 +68,24 @@ def percent_color(percent: int) -> Color:
     return RED
 
 
+def _digits(value: int) -> str:
+    """Icon label of a percentage: two digits at most, so 100 % is shown as ``F`` (full)."""
+    return "F" if value >= 100 else str(max(0, value))
+
+
 def icon_spec(view: TrayView) -> IconSpec:
     muted = view.muted is True and view.link == "on"
     if view.link != "on":
-        return IconSpec("off", "--", GRAY, WHITE)
+        return IconSpec("off", "-", GRAY, WHITE)            # headset off / no dongle: middle bar
     if view.charging:
         if view.estimate is not None:
-            return IconSpec("charging", str(view.estimate), BLUE, APPROX_FG, muted, approx=True)
+            return IconSpec("charging", _digits(view.estimate), BLUE, APPROX_FG, muted, approx=True)
         return IconSpec("charging", "", BLUE, WHITE, muted)
     if view.percent is None:
-        return IconSpec("off", "..", GRAY, WHITE, muted)
+        return IconSpec("off", "_", GRAY, WHITE, muted)     # on, battery not read yet: bottom bar
     bg = percent_color(view.percent)
     fg = DARK if bg == YELLOW else WHITE
-    return IconSpec("percent", str(view.percent), bg, fg, muted)
+    return IconSpec("percent", _digits(view.percent), bg, fg, muted)
 
 
 def tooltip_text(view: TrayView) -> str:
@@ -141,10 +147,29 @@ def status_text(view: TrayView) -> str:
 
 # --------------------------------------------------------------------------
 # Icon drawing
+#
+# The background (rounded square, bolt) is drawn supersampled; the digits and
+# the mute badge are drawn straight on the pixel grid, with solid rectangles
+# and no antialiasing, so they stay crisp at any tray size.
 # --------------------------------------------------------------------------
-_FONT_CANDIDATES = ("segoeuib.ttf", "arialbd.ttf", "seguisb.ttf", "arial.ttf", "DejaVuSans-Bold.ttf")
 _BOLT = ((0.60, 0.05), (0.20, 0.57), (0.44, 0.57), (0.37, 0.95), (0.80, 0.41), (0.55, 0.41))
-_SUPERSAMPLE = 4
+_SUPERSAMPLE = 8
+
+# Seven-segment glyphs; segments are named as usual:
+#    aaa
+#   f   b
+#    ggg
+#   e   c
+#    ddd
+_SEGMENTS = {
+    "0": "abcdef", "1": "bc", "2": "abdeg", "3": "abcdg", "4": "bcfg",
+    "5": "acdfg", "6": "acdefg", "7": "abc", "8": "abcdefg", "9": "abcdfg",
+    "F": "aefg",                        # 100 % (three digits do not fit)
+    "-": "g",                           # headset off / unknown
+    "_": "d",                           # headset on, battery not read yet
+}
+
+Rect = Tuple[int, int, int, int]        # x0, y0, x1, y1; x1 / y1 exclusive
 
 
 def tray_icon_size() -> int:
@@ -158,28 +183,90 @@ def tray_icon_size() -> int:
     return 16
 
 
-def _load_font(px: int) -> ImageFont.ImageFont:
-    for name in _FONT_CANDIDATES:
+def _half_up(value: float) -> int:
+    return int(value + 0.5)
+
+
+@dataclass(frozen=True)
+class _SegMetrics:
+    stroke: int         # thickness of every segment
+    width: int          # width of one digit
+    gap: int            # blank columns between two digits
+    run: int            # length of one vertical segment between two bars
+    height: int         # 3 bars + 2 runs
+
+
+def _seg_metrics(size: int) -> _SegMetrics:
+    """Digit geometry for an icon of ``size`` px.
+
+    At 16 px each digit is 7 x 12 with 2-px strokes and a 1-px gap (two digits
+    take 15 columns); exact multiples of 16 are that design scaled by an
+    integer. Other sizes keep the proportions, rounded to whole pixels: stroke
+    round(size / 8) (ties go to even; never below 2 px unless the digit is too
+    narrow for that), gap ceil(size / 16), and digits 12 / 7 as tall as wide.
+    """
+    k = size / 16
+    gap = max(1, math.ceil(k))
+    width = max(3, (_half_up(15 * k) - gap) // 2)
+    stroke = max(1, min(max(2, round(size / 8)), (width - 2) // 2))
+    run = max(1, _half_up((width * 12 / 7 - 3 * stroke) / 2))
+    return _SegMetrics(stroke, width, gap, run, 3 * stroke + 2 * run)
+
+
+def _segment_rect(seg: str, x: int, y: int, m: _SegMetrics) -> Rect:
+    t, w, h, r = m.stroke, m.width, m.height, m.run
+    return {
+        "a": (x, y, x + w, y + t),
+        "b": (x + w - t, y, x + w, y + 2 * t + r),
+        "c": (x + w - t, y + t + r, x + w, y + h),
+        "d": (x, y + h - t, x + w, y + h),
+        "e": (x, y + t + r, x + t, y + h),
+        "f": (x, y, x + t, y + 2 * t + r),
+        "g": (x, y + t + r, x + w, y + 2 * t + r),
+    }[seg]
+
+
+def label_rects(label: str, size: int) -> List[Rect]:
+    """Solid rectangles (x0, y0, x1, y1; end exclusive) that draw ``label`` in a
+    ``size`` x ``size`` icon: the glyphs are centred on the pixel grid, using
+    the ink (so a leading ``1``, which is right-aligned in its cell, does not
+    leave a hole on the left)."""
+    m = _seg_metrics(size)
+    rects = []
+    for i, ch in enumerate(label):
         try:
-            return ImageFont.truetype(name, px)
-        except OSError:
-            continue
-    return ImageFont.load_default(px)
+            segments = _SEGMENTS[ch]
+        except KeyError:
+            raise ValueError(f"no seven-segment glyph for {ch!r}") from None
+        rects += [_segment_rect(s, i * (m.width + m.gap), 0, m) for s in segments]
+    if not rects:
+        return []
+    left, right = min(r[0] for r in rects), max(r[2] for r in rects)
+    dx = (size - (right - left)) // 2 - left
+    dy = (size - m.height) // 2
+    return [(x0 + dx, y0 + dy, x1 + dx, y1 + dy) for x0, y0, x1, y1 in rects]
 
 
-def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_w: int, max_h: int) -> ImageFont.ImageFont:
-    px = max_h
-    while px > 6:
-        font = _load_font(px)
-        left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
-        if right - left <= max_w and bottom - top <= max_h:
-            return font
-        px -= 2
-    return _load_font(6)
-
-
-def _blend(a: Color, b: Color, t: float) -> Color:
-    return (int(a[0] + (b[0] - a[0]) * t), int(a[1] + (b[1] - a[1]) * t), int(a[2] + (b[2] - a[2]) * t))
+def _draw_mute_badge(img: Image.Image) -> None:
+    """Red dot with a white ring in the bottom-right corner, drawn pixel by
+    pixel (no antialiasing); a white slash is added when it is big enough."""
+    size = img.width
+    d = max(5, _half_up(size * 0.3))                # 5 px at 16, 6 at 20, 7 at 24, 10 at 32
+    ring = max(1, size // 16)
+    first = size - d
+    c = first + d / 2
+    outer, inner = (d / 2) ** 2, (d / 2 - ring) ** 2
+    px = img.load()
+    for y in range(first, size):
+        for x in range(first, size):
+            dist = (x + 0.5 - c) ** 2 + (y + 0.5 - c) ** 2
+            if dist <= outer:
+                px[x, y] = (WHITE if dist > inner else MUTE_RED) + (255,)
+    if d >= 7:
+        mid = c - 0.5                               # pixel index of the badge centre
+        reach = d / 2 - ring - 0.5                  # integer end points, ending at the ring
+        ImageDraw.Draw(img).line((mid - reach, mid + reach, mid + reach, mid - reach),
+                                 fill=WHITE + (255,), width=max(1, size // 24))
 
 
 def render_icon(spec: IconSpec, size: int = 16) -> Image.Image:
@@ -188,26 +275,16 @@ def render_icon(spec: IconSpec, size: int = 16) -> Image.Image:
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     draw.rounded_rectangle((0, 0, s - 1, s - 1), radius=int(s * 0.22), fill=spec.bg + (255,))
+    if spec.kind == "charging" and not spec.label:
+        draw.polygon([(x * s, y * s) for x, y in _BOLT], fill=spec.fg + (255,))
+    img = img.resize((size, size), Image.BOX)        # exact area coverage: flat interior, no ringing
 
-    if spec.kind == "charging":
-        # Estimated digits go over a faint bolt (still reads as "charging").
-        bolt = _blend(spec.bg, WHITE, 0.22) if spec.label else spec.fg
-        draw.polygon([(x * s, y * s) for x, y in _BOLT], fill=bolt + (255,))
-    if spec.label:
-        max_w = int(s * (0.96 if len(spec.label) <= 2 else 0.98))
-        max_h = int(s * (0.80 if len(spec.label) <= 2 else 0.60))
-        font = _fit_font(draw, spec.label, max_w, max_h)
-        draw.text((s / 2, s / 2), spec.label, font=font, fill=spec.fg + (255,), anchor="mm")
+    for rect in label_rects(spec.label, size):
+        img.paste(spec.fg + (255,), rect)           # replaces the pixels, no blending
 
     if spec.muted:
-        r = s * 0.22
-        cx, cy = s - r - s * 0.02, s - r - s * 0.02
-        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=MUTE_RED + (255,), outline=WHITE + (255,),
-                     width=max(1, s // 24))
-        draw.line((cx - r * 0.55, cy + r * 0.55, cx + r * 0.55, cy - r * 0.55),
-                  fill=WHITE + (255,), width=max(1, s // 22))
-
-    return img.resize((size, size), Image.LANCZOS)
+        _draw_mute_badge(img)
+    return img
 
 
 # --------------------------------------------------------------------------

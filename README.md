@@ -2,7 +2,7 @@
 
 App de bandeja para Windows 11 que muestra la batería del **HyperX Cloud Flight for PS** (dongle USB `0951:1749`) y evita que el auricular se apague solo.
 
-- **Ícono de bandeja** con el porcentaje (de a 1 %) sobre un fondo de color: verde > 50 %, amarillo 20-50 %, rojo < 20 %, gris si el auricular está apagado o el dongle desconectado, rayo azul si está cargando (con el número estimado en celeste tenue sobre el rayo, ver "Estimación al cargar"). Si se detecta que el micrófono está silenciado aparece un punto rojo en la esquina.
+- **Ícono de bandeja** con el porcentaje (de a 1 %) sobre un fondo de color: verde > 50 %, amarillo 20-50 %, rojo < 20 %, gris si el auricular está apagado o el dongle desconectado, rayo azul si está cargando (con el número estimado en celeste tenue en lugar del rayo, ver "Estimación al cargar"). Los números son dígitos de siete segmentos dibujados píxel a píxel (nítidos a cualquier escala de Windows); 100 % se muestra como `F`, y un guion `-` si el auricular está apagado. Si se detecta que el micrófono está silenciado aparece un punto rojo en la esquina.
 - **Anti-apagado**: reproduce un tono de 10 Hz al 5 % (inaudible) en la salida del HyperX mientras el auricular está prendido. Se pausa con la sesión bloqueada o tras N minutos sin tocar teclado ni mouse.
 - **Audio predeterminado automático**: al prender el auricular, la salida y el micrófono del HyperX pasan a ser los predeterminados de Windows; al apagarlo vuelven a unos dispositivos fijos (por defecto "Altavoces (Realtek(R) Audio)" y "Micrófono (Brio 100)", configurables) o, si no hay, a los que había antes (ver "Cambio automático de audio").
 - **Aviso de batería baja** (20 % y 10 %, una sola vez por ciclo de descarga).
@@ -47,8 +47,8 @@ Solo Windows (probado en Windows 11).
 **Instalación silenciosa** (útil para automatizar):
 
 ```powershell
-.\HyperXBattery-Setup-1.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART                       # con "Iniciar con Windows"
-.\HyperXBattery-Setup-1.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /MERGETASKS="!startup" # sin "Iniciar con Windows"
+.\HyperXBattery-Setup-1.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART                       # con "Iniciar con Windows"
+.\HyperXBattery-Setup-1.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /MERGETASKS="!startup" # sin "Iniciar con Windows"
 & "$env:LOCALAPPDATA\Programs\HyperX Battery\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES        # desinstala (conserva los datos)
 ```
 
@@ -95,7 +95,7 @@ Tooltip del ícono: `HyperX Cloud Flight · 85 % · ~12 h restantes · Anti-apag
 
 - **Batería**: cada 5 s se escribe el reporte `21 FF 05 00…` (20 bytes) en la colección HID `0xFF90`; la respuesta `21 FF 05 HI LO` trae el voltaje en mV `(HI<<8)|LO`. El voltaje se convierte a % con una tabla (`battery.py`, constantes `CURVE_MV` / `CURVE_PERCENT`, reemplazables).
 - **Suavizado**: el % mostrado sale de la **mediana** de las lecturas de los últimos 2 min. Mientras se descarga, el número **solo baja**; puede volver a subir solo tras cargar, tras haber estado apagado, o si el valor nuevo supera al mostrado por 3 puntos o más durante 2 min seguidos. Además, para que el ruido de ±2 mV no mueva el número, solo baja cuando el valor suavizado está claramente por debajo (1 punto de margen) y de a un punto por vez (`BatteryTracker(fall_margin, max_fall_step)`; con `fall_margin=0` es la regla simple `min`). Consecuencia: el número puede quedar hasta ~1 punto por encima del valor "exacto".
-- **Cargando**: `HI == 0x10 and LO >= 20` o `HI >= 0x11` (≥ 4116 mV). Mientras carga el voltaje queda plano (~4,3 V) y no hay porcentaje medido: el ícono muestra el rayo y, si hay estimación, el número aproximado. Al terminar se reinicia el suavizado y se vuelve al valor medido.
+- **Cargando**: `HI == 0x10 and LO >= 20` o `HI >= 0x11` (≥ 4116 mV). Mientras carga el voltaje queda plano (~4,3 V) y no hay porcentaje medido: el ícono muestra el rayo o, si hay estimación, el número aproximado (en celeste tenue y sin el rayo detrás, para que se lea nítido). Al terminar se reinicia el suavizado y se vuelve al valor medido.
 - **Estimación al cargar**: al empezar a cargar se guarda la hora y el último % mostrado antes; el % estimado es `inicio + tasa × horas`, con tope en 99 % (nunca dice 100 %), y "lleno en" es `(100 − estimado) / tasa`. La tasa arranca en 25 %/h (la especificación de HyperX dice ~4,5 h para cargar a tope) y se **aprende**: unos 5 min después de desenchufar (cuando se disipa la carga superficial) se mide el % y se calcula la tasa real de esa carga, que se mezcla con la guardada (media móvil exponencial, peso 0,3, acotada a 10-60 %/h). Se ignoran las cargas de menos de 10 min, los resultados absurdos, y las que terminan en 99 % o más cuando son más lentas que la tasa actual (puede ser que simplemente se llenó); si el auricular se apaga antes de los 5 min no se aprende nada. Si la app arranca ya cargando, usa el último % del historial si tiene menos de 12 h; si no hay dato, solo muestra el rayo. La estimación **no** se guarda en el historial (esas filas siguen con % vacío) ni afecta los avisos de batería baja. Estado en `charge_state.json` (tasa aprendida y la carga en curso, para sobrevivir a un reinicio; si el archivo está dañado se usan los valores por defecto).
 - **Encendido / apagado**: el auricular **no avisa** cuando se apaga, así que se detecta porque deja de contestar: 2 consultas seguidas sin respuesta (≈ 7-12 s) → gris. La primera respuesta después → vuelve solo (≤ 5 s). Si se desenchufa el dongle se cierra todo y se reintenta cada 5 s.
 - **Anti-apagado**: abre un `OutputStream` WASAPI (modo compartido, float32, 48 kHz, estéreo) en la salida cuyo nombre contiene "HyperX" (no es la salida predeterminada) con un seno de 10 Hz al 5 %. Con silencio digital el auricular se apaga a los ~17 min; con este tono, no. Si la salida desaparece o el stream falla, se cierra y se reintenta cada 10 s buscando de nuevo por nombre. Entra y sale con un fundido de 150 ms para no hacer clic.
@@ -188,7 +188,7 @@ Detalles del script:
 |---|---|
 | `--debug-hid` | Imprime en la consola **todos** los reportes HID crudos de las 4 colecciones (`[hora] HID FF90/0303  21 ff 05 …`). Úsalo para descubrir los eventos de mute: con la app corriendo, levanta y baja el brazo del micrófono y mira qué línea nueva aparece. En el .exe abre una consola propia. |
 | `--simulate-percent N` | No toca el auricular: simula una batería de N % (prueba el color del ícono y los avisos, p. ej. `--simulate-percent 15`). No usa el historial real ni reproduce el tono. |
-| `--simulate-charging` | Con lo anterior, simula una carga que empieza desde ese % (rayo con el número estimado; p. ej. `--simulate-percent 82 --simulate-charging`). No guarda `charge_state.json`. |
+| `--simulate-charging` | Con lo anterior, simula una carga que empieza desde ese % (el número estimado en lugar del rayo; p. ej. `--simulate-percent 82 --simulate-charging`). No guarda `charge_state.json`. |
 | `--no-keepalive` | Esta ejecución no reproduce el tono. |
 | `--selftest` | Comprueba que cargan las dependencias y sale (código 0 si todo bien). |
 | `python -m hyperx_battery.session` | Imprime cada segundo si la sesión está bloqueada (las dos señales usadas) y el tiempo de inactividad. Útil para probar Win+L. |

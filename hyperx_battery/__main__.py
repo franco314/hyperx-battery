@@ -203,10 +203,10 @@ def selftest() -> int:
         return result[0]
 
     def probe_icon() -> str:
-        from .tray import IconSpec, GREEN, WHITE, render_icon, _load_font
+        from .tray import IconSpec, GREEN, WHITE, render_icon
 
         img = render_icon(IconSpec("percent", "85", GREEN, WHITE), 16)
-        return f"icon {img.size}, font {getattr(_load_font(12), 'path', 'default')}"
+        return f"icon {img.size}"
 
     def probe_tk() -> str:
         root = tk.Tk()
