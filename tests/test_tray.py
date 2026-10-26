@@ -1,9 +1,14 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
+from PIL import Image, ImageDraw
 
+from hyperx_battery import tray
 from hyperx_battery.tray import (
     APPROX_FG,
     BLUE,
+    DARK,
     GRAY,
     GREEN,
     MUTE_RED,
@@ -12,9 +17,8 @@ from hyperx_battery.tray import (
     YELLOW,
     IconSpec,
     TrayView,
-    _seg_metrics,
+    _label_font,
     icon_spec,
-    label_rects,
     percent_color,
     render_icon,
     status_text,
@@ -38,31 +42,38 @@ def test_icon_spec_percent():
 def test_icon_spec_gray_when_off_or_disconnected():
     for link in ("off", "no_dongle", "searching"):
         spec = icon_spec(TrayView(link=link, percent=85, charging=True))
-        assert spec.bg == GRAY and spec.kind == "off" and spec.label == "-"
+        assert spec.bg == GRAY and spec.kind == "off" and spec.label == "--"
 
 
 def test_icon_spec_on_without_a_reading_yet_is_a_distinct_gray():
     spec = icon_spec(TrayView(link="on"))
-    assert spec.kind == "off" and spec.bg == GRAY and spec.label == "_"
+    assert spec.kind == "off" and spec.bg == GRAY and spec.label == ".."
     assert spec != icon_spec(TrayView(link="off"))
 
 
-def test_icon_labels_never_need_more_than_two_glyphs():
-    assert icon_spec(TrayView(link="on", percent=100)).label == "F"
+def test_icon_label_is_the_whole_number():
+    assert icon_spec(TrayView(link="on", percent=100)).label == "100"
     assert icon_spec(TrayView(link="on", percent=7)).label == "7"
     assert icon_spec(TrayView(link="on", percent=0)).label == "0"
     assert icon_spec(TrayView(link="on", percent=100)).bg == GREEN
     assert icon_spec(TrayView(link="on", charging=True, estimate=99)).label == "99"
     for pct in range(0, 101):
-        assert len(icon_spec(TrayView(link="on", percent=pct)).label) <= 2
+        assert icon_spec(TrayView(link="on", percent=pct)).label == str(pct)
+
+
+def test_icon_number_is_white_except_dark_on_yellow():
+    for pct, bg, fg in [(87, GREEN, WHITE), (45, YELLOW, DARK), (12, RED, WHITE)]:
+        spec = icon_spec(TrayView(link="on", percent=pct))
+        assert (spec.bg, spec.fg) == (bg, fg)
+    assert icon_spec(TrayView(link="off")).fg == WHITE
 
 
 def test_icon_spec_charging_shows_the_bolt():
     spec = icon_spec(TrayView(link="on", charging=True))
-    assert spec.kind == "charging" and spec.bg == BLUE and spec.label == ""
+    assert spec.kind == "charging" and spec.bg == BLUE and spec.label == "" and spec.fg == WHITE
 
 
-def test_icon_spec_charging_with_an_estimate_shows_dimmed_digits():
+def test_icon_spec_charging_with_an_estimate_shows_a_dimmed_number():
     spec = icon_spec(TrayView(link="on", charging=True, estimate=90, full_in="lleno en ~25 min"))
     assert spec.kind == "charging" and spec.label == "90" and spec.bg == BLUE
     assert spec.approx and spec.fg == APPROX_FG
@@ -118,13 +129,37 @@ def test_status_text():
     )
 
 
-@pytest.mark.parametrize("size", [16, 20, 24, 32, 48])
-@pytest.mark.parametrize(
-    "view",
-    [TrayView(link="on", percent=p) for p in (100, 85, 7, 0)]
+# --------------------------------------------------------------------------
+# Icon drawing: rounded square in the state colour + the number drawn at the
+# final size (+ bolt while charging, + mute badge)
+# --------------------------------------------------------------------------
+SIZES = [16, 20, 24, 32, 48]
+VIEWS = (
+    [TrayView(link="on", percent=p) for p in (100, 85, 45, 7, 0)]
     + [TrayView(link="on", charging=True, estimate=e) for e in (99, 41, 8)]
-    + [TrayView(link="on", charging=True), TrayView(link="off"), TrayView(link="on", percent=42, muted=True)],
+    + [TrayView(link="on", charging=True), TrayView(link="off"), TrayView(link="on")]
+    + [TrayView(link="on", percent=42, muted=True), TrayView(link="on", charging=True, muted=True)]
 )
+LABELLED = [v for v in VIEWS if icon_spec(v).label]
+
+
+def _px(spec, size):
+    return np.asarray(render_icon(spec, size)).astype(int)
+
+
+def _background(spec, size):
+    """The same icon without number, bolt or badge."""
+    return _px(replace(spec, kind="off", label="", muted=False), size)
+
+
+def _ink(spec, size):
+    """Mask of the pixels where the number clearly shows over the background."""
+    plain = _px(replace(spec, muted=False), size)
+    return np.abs(plain - _background(spec, size)).max(axis=2) >= 64
+
+
+@pytest.mark.parametrize("size", SIZES)
+@pytest.mark.parametrize("view", VIEWS)
 def test_render_icon_has_exact_size_and_content(view, size):
     img = render_icon(icon_spec(view), size)
     assert img.size == (size, size) and img.mode == "RGBA"
@@ -133,123 +168,127 @@ def test_render_icon_has_exact_size_and_content(view, size):
     assert lo < 255 or size < 20                                   # rounded corners are transparent
 
 
-def test_render_icon_uses_the_background_color():
-    img = render_icon(icon_spec(TrayView(link="on", percent=85)), 32)
-    assert img.getpixel((16, 2)) == GREEN + (255,)                  # above the digits
+@pytest.mark.parametrize("size", range(12, 65))
+def test_render_icon_works_at_any_tray_size(size):
+    for view in (VIEWS[0], VIEWS[5], VIEWS[8], VIEWS[-2], VIEWS[-1]):
+        assert render_icon(icon_spec(view), size).size == (size, size)
 
 
-def test_estimated_icon_differs_from_the_plain_bolt_and_digits_are_dimmer_than_measured():
-    plain = render_icon(icon_spec(TrayView(link="on", charging=True)), 32)
-    est = render_icon(icon_spec(TrayView(link="on", charging=True, estimate=90)), 32)
-    assert plain.tobytes() != est.tobytes()
-    px = np.asarray(est).astype(int)
-    brightest = px[px[..., 3] == 255][:, :3].sum(axis=1).max()
-    assert brightest < 3 * 255                                      # no pure-white pixel: reads as approximate
-
-
-# --------------------------------------------------------------------------
-# Seven-segment digits are drawn on the pixel grid
-# --------------------------------------------------------------------------
-def _digit_mask(label, size):
-    mask = np.zeros((size, size), dtype=bool)
-    for x0, y0, x1, y1 in label_rects(label, size):
-        assert 0 <= x0 < x1 <= size and 0 <= y0 < y1 <= size      # inside the icon
-        mask[y0:y1, x0:x1] = True
-    return mask
-
-
-CRISP_VIEWS = (
-    [TrayView(link="on", percent=p) for p in (100, 87, 45, 20, 12, 7, 1, 0)]
-    + [TrayView(link="on", charging=True, estimate=e) for e in (99, 60, 8)]
-    + [TrayView(link="off"), TrayView(link="on")]
+@pytest.mark.parametrize("size", SIZES)
+@pytest.mark.parametrize(
+    "view,color",
+    [
+        (TrayView(link="on", percent=87), GREEN),
+        (TrayView(link="on", percent=100), GREEN),
+        (TrayView(link="on", percent=45), YELLOW),
+        (TrayView(link="on", percent=12), RED),
+        (TrayView(link="on", charging=True), BLUE),
+        (TrayView(link="on", charging=True, estimate=60), BLUE),
+        (TrayView(link="on", percent=87, muted=True), GREEN),
+        (TrayView(link="off"), GRAY),
+        (TrayView(link="on"), GRAY),
+    ],
 )
+def test_render_icon_is_a_square_in_the_color_of_the_state(view, color, size):
+    img = render_icon(icon_spec(view), size)
+    mid = size // 2
+    for xy in ((mid, 0), (0, mid), (size - 1, mid)):                # edge midpoints: no number, bolt or badge there
+        assert img.getpixel(xy) == color + (255,)
+    assert img.getpixel((0, 0))[3] < 255 or size < 20               # rounded corner
 
 
-@pytest.mark.parametrize("size", [16, 20, 24, 28, 32, 48])
-@pytest.mark.parametrize("view", CRISP_VIEWS)
-def test_digits_are_opaque_solid_pixels_with_nothing_blurred_around_them(view, size):
+@pytest.mark.parametrize("size", SIZES)
+@pytest.mark.parametrize("view", LABELLED)
+def test_number_is_drawn_at_the_final_size_in_the_foreground_color(view, size):
     spec = icon_spec(view)
-    px = np.asarray(render_icon(spec, size))
-    mask = _digit_mask(spec.label, size)
-    assert mask.any()
-    assert (px[mask] == np.array(spec.fg + (255,))).all()          # pure colour, alpha 255: no antialiasing
-    outside = px[~mask]
-    opaque = outside[outside[..., 3] == 255]
-    assert (opaque[:, :3] == np.array(spec.bg)).all()              # no fringe: just the background colour
-
-
-@pytest.mark.parametrize("size", [16, 20, 24, 28, 32, 48])
-def test_digits_stay_inside_the_rounded_square(size):
-    for pct in (0, 8, 88, 100):
-        spec = icon_spec(TrayView(link="on", percent=pct))
-        empty = IconSpec(spec.kind, "", spec.bg, spec.fg)
-        bg_alpha = np.asarray(render_icon(empty, size))[..., 3]
-        assert bg_alpha[_digit_mask(spec.label, size)].min() >= 192   # never in the transparent corners
-
-
-def test_sixteen_pixel_design():
-    # 7 x 12 digits, 2-px strokes, 1-px gap: two digits take 15 columns and rows 2..13
-    m = _seg_metrics(16)
-    assert (m.stroke, m.width, m.height, m.gap) == (2, 7, 12, 1)
-    rects = label_rects("88", 16)
-    assert min(r[0] for r in rects) == 0 and max(r[2] for r in rects) == 15
-    assert min(r[1] for r in rects) == 2 and max(r[3] for r in rects) == 14
-    assert _digit_mask("88", 16).sum() == 2 * (7 * 12 - 2 * 3 * 3)  # each 8: 7 x 12 minus its two 3 x 3 holes
-
-
-@pytest.mark.parametrize("k", [2, 3, 4, 16])
-def test_multiples_of_16_scale_the_16_px_design_exactly(k):
-    base, m = _seg_metrics(16), _seg_metrics(16 * k)
-    assert (m.stroke, m.width, m.height, m.gap) == (base.stroke * k, base.width * k, base.height * k, base.gap * k)
-
-    def from_left_edge(rects):                                     # the margins are centred, not scaled
-        left = min(r[0] for r in rects)
-        return sorted((x0 - left, y0, x1 - left, y1) for x0, y0, x1, y1 in rects)
-
-    scaled = [(x0 * k, y0 * k, x1 * k, y1 * k) for x0, y0, x1, y1 in label_rects("2F", 16)]
-    assert from_left_edge(label_rects("2F", 16 * k)) == from_left_edge(scaled)
+    px = _px(replace(spec, muted=False), size)
+    ink = _ink(spec, size)
+    assert ink.any()                                               # the number is there
+    near = np.abs(px[ink][:, :3] - np.array(spec.fg)).max(axis=1)
+    tiny = len(spec.label) > 2 and size < 20                       # "100" at 16 px is a 7 px font: strokes under 1.5 px
+    assert near.min() <= (64 if tiny else 16)                      # glyph cores reach the full colour: not a blur
+    # every opaque pixel is the background, the number colour, or a blend of the two (no stray colours)
+    bg, fg = np.array(spec.bg), np.array(spec.fg)
+    opaque = px[px[..., 3] == 255][:, :3]
+    t = np.clip(((opaque - bg) @ (fg - bg)) / ((fg - bg) @ (fg - bg)), 0, 1)
+    assert np.abs(opaque - (bg + t[:, None] * (fg - bg))).max() <= 3
 
 
 @pytest.mark.parametrize("size", range(12, 65))
-def test_digit_geometry_fits_every_tray_size(size):
-    m = _seg_metrics(size)
-    assert m.stroke >= (2 if size >= 16 else 1)
-    assert m.width - 2 * m.stroke >= 2                             # the holes of 0, 6, 8, 9 stay open
-    assert m.height == 3 * m.stroke + 2 * m.run <= size - 2
-    for label in ("88", "F", "-", "_", "1", "11"):
-        ink = np.flatnonzero(_digit_mask(label, size).any(axis=0))  # also asserts the bounds
-        assert 0 <= (size - 1 - ink[-1]) - ink[0] <= 1             # centred (the odd pixel goes to the right)
+def test_number_stays_inside_the_rounded_square(size):
+    for label in ("0", "7", "42", "87", "100", "--", ".."):
+        spec = IconSpec("percent", label, GREEN, WHITE)
+        ys, xs = np.nonzero(_ink(spec, size))
+        assert min(xs.min(), ys.min(), size - 1 - xs.max(), size - 1 - ys.max()) >= 1
+        assert _background(spec, size)[..., 3][ys, xs].min() == 255  # never over the transparent corners
 
 
-def test_seven_segment_glyphs():
-    def ink(ch):
-        return {tuple(r) for r in label_rects(ch, 16)}
+@pytest.mark.parametrize("size", SIZES)
+def test_number_is_centred_horizontally(size):
+    for label in ("87", "45", "12", "100"):
+        _ys, xs = np.nonzero(_ink(IconSpec("percent", label, GREEN, WHITE), size))
+        assert abs(xs.min() - (size - 1 - xs.max())) <= 2
 
-    assert len({frozenset(ink(c)) for c in "0123456789F-_"}) == 13  # every glyph is different
-    assert ink("8") > ink("0") and ink("8") > ink("6") and ink("8") > ink("9")
-    with pytest.raises(ValueError):
-        label_rects("H", 16)
+
+def test_font_is_11_px_at_16_and_scales_with_the_icon():
+    draw = ImageDraw.Draw(Image.new("RGBA", (64, 64)))
+    assert _label_font(draw, "87", 16).size == 11
+    assert _label_font(draw, "0", 16).size == 11
+    assert _label_font(draw, "87", 32).size == 22
+    sizes = [_label_font(draw, "87", s).size for s in SIZES]
+    assert sizes == sorted(sizes) and len(set(sizes)) == len(SIZES)
+
+
+@pytest.mark.parametrize("size", range(12, 65))
+def test_font_shrinks_until_the_label_fits(size):
+    draw = ImageDraw.Draw(Image.new("RGBA", (64, 64)))
+    two, three = _label_font(draw, "88", size), _label_font(draw, "100", size)
+    assert three.size < two.size                                   # 100 % shrinks to fit
+    for label, font in (("88", two), ("100", three)):
+        assert draw.textlength(label, font=font) <= size - 2 or font.size == 6
+
+
+def test_icon_still_draws_when_no_font_file_is_found(monkeypatch):
+    real = tray.ImageFont.truetype
+
+    def no_system_fonts(font, *args, **kwargs):
+        if isinstance(font, str):                                  # a file name: none of them exists
+            raise OSError("no such font")
+        return real(font, *args, **kwargs)                         # Pillow's bundled fallback is a stream
+
+    monkeypatch.setattr(tray.ImageFont, "truetype", no_system_fonts)
+    spec = icon_spec(TrayView(link="on", percent=87))
+    assert render_icon(spec, 16).size == (16, 16) and _ink(spec, 16).any()
 
 
 @pytest.mark.parametrize("size", [16, 20, 24, 28, 32, 48])
-def test_mute_badge_is_visible_and_keeps_the_digits_readable(size):
+def test_mute_badge_is_visible_and_keeps_the_number_readable(size):
     worst = 1.0
     for pct in range(0, 101):
         spec = icon_spec(TrayView(link="on", percent=pct, muted=True))
         assert spec.muted
-        px = np.asarray(render_icon(spec, size))
-        assert (px[..., :3] == MUTE_RED).all(axis=-1).any()        # the red dot is there
-        mask = _digit_mask(spec.label, size)
-        shown = (px[mask][:, :3] == np.array(spec.fg)).all(axis=1).mean()
-        worst = min(worst, shown)
+        muted = _px(spec, size)
+        assert (muted[..., :3] == MUTE_RED).all(axis=-1).any()      # the red dot is there
+        plain = _px(replace(spec, muted=False), size)
+        ink = _ink(spec, size)
+        worst = min(worst, (muted[ink] == plain[ink]).all(axis=1).mean())
     assert worst >= 0.85                                           # the badge hides at most ~15 % of any number
 
 
-def test_estimated_icon_has_no_bolt_behind_the_digits():
+def test_charging_without_an_estimate_is_a_white_bolt_on_blue():
+    px = _px(icon_spec(TrayView(link="on", charging=True)), 32)
+    white = (px[..., :3] == WHITE).all(axis=-1)
+    assert white.sum() > 32 * 32 // 10                              # a solid bolt, not a speck
+    assert not white[:2].any() and not white[-2:].any()             # inside the square
+    assert (px[..., :3] == BLUE).all(axis=-1).sum() > white.sum()
+
+
+def test_estimated_icon_is_a_dimmed_number_without_a_bolt():
     est = icon_spec(TrayView(link="on", charging=True, estimate=60))
-    px = np.asarray(render_icon(est, 32))
-    rest = ~_digit_mask(est.label, 32)
-    opaque = px[rest & (px[..., 3] == 255)]
-    assert (opaque[:, :3] == BLUE).all()                           # only the blue background around the digits
-    bolt = np.asarray(render_icon(icon_spec(TrayView(link="on", charging=True)), 32))
-    assert (bolt[..., :3] == WHITE).all(axis=-1).any()             # the plain charging icon keeps its bolt
+    bolt = icon_spec(TrayView(link="on", charging=True))
+    assert _px(est, 32).tobytes() != _px(bolt, 32).tobytes()
+    px = _px(est, 32)
+    assert not (px[..., :3] == WHITE).all(axis=-1).any()           # no pure white: reads as approximate, no bolt
+    assert (px[..., :3] == APPROX_FG).all(axis=-1).any()           # the number is in the light blue
+    background = _background(est, 32)
+    assert (background[..., :3][background[..., 3] == 255] == BLUE).all()

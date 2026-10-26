@@ -6,25 +6,24 @@ from __future__ import annotations
 
 import ctypes
 import logging
-import math
 import threading
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Optional, Tuple
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 log = logging.getLogger(__name__)
 
 APP_TITLE = "HyperX Cloud Flight"
 
 Color = Tuple[int, int, int]
-GREEN: Color = (22, 163, 74)
-YELLOW: Color = (250, 204, 21)
-RED: Color = (220, 38, 38)
-GRAY: Color = (107, 114, 128)
-BLUE: Color = (37, 99, 235)
+GREEN: Color = (38, 125, 56)            # soft, slightly desaturated state colours
+YELLOW: Color = (196, 150, 20)
+RED: Color = (180, 50, 50)
+GRAY: Color = (105, 105, 105)
+BLUE: Color = (35, 100, 185)
 WHITE: Color = (255, 255, 255)
-DARK: Color = (24, 24, 27)
+DARK: Color = (25, 25, 25)
 MUTE_RED: Color = (239, 68, 68)
 APPROX_FG: Color = (191, 219, 254)      # light blue: estimated digits read as "not measured"
 
@@ -68,24 +67,19 @@ def percent_color(percent: int) -> Color:
     return RED
 
 
-def _digits(value: int) -> str:
-    """Icon label of a percentage: two digits at most, so 100 % is shown as ``F`` (full)."""
-    return "F" if value >= 100 else str(max(0, value))
-
-
 def icon_spec(view: TrayView) -> IconSpec:
     muted = view.muted is True and view.link == "on"
     if view.link != "on":
-        return IconSpec("off", "-", GRAY, WHITE)            # headset off / no dongle: middle bar
+        return IconSpec("off", "--", GRAY, WHITE)           # headset off / no dongle
     if view.charging:
         if view.estimate is not None:
-            return IconSpec("charging", _digits(view.estimate), BLUE, APPROX_FG, muted, approx=True)
+            return IconSpec("charging", str(view.estimate), BLUE, APPROX_FG, muted, approx=True)
         return IconSpec("charging", "", BLUE, WHITE, muted)
     if view.percent is None:
-        return IconSpec("off", "_", GRAY, WHITE, muted)     # on, battery not read yet: bottom bar
+        return IconSpec("off", "..", GRAY, WHITE, muted)    # on, battery not read yet
     bg = percent_color(view.percent)
     fg = DARK if bg == YELLOW else WHITE
-    return IconSpec("percent", _digits(view.percent), bg, fg, muted)
+    return IconSpec("percent", str(view.percent), bg, fg, muted)
 
 
 def tooltip_text(view: TrayView) -> str:
@@ -148,28 +142,17 @@ def status_text(view: TrayView) -> str:
 # --------------------------------------------------------------------------
 # Icon drawing
 #
-# The background (rounded square, bolt) is drawn supersampled; the digits and
-# the mute badge are drawn straight on the pixel grid, with solid rectangles
-# and no antialiasing, so they stay crisp at any tray size.
+# The rounded square (and the bolt) is drawn supersampled and shrunk with an
+# exact area filter; the number and the mute badge are drawn straight at the
+# final size, so the glyphs are hinted for that very size and stay crisp
+# instead of being blurred by a downscale.
 # --------------------------------------------------------------------------
+_FONT_CANDIDATES = ("segoeuib.ttf", "arialbd.ttf", "seguisb.ttf", "arial.ttf", "DejaVuSans-Bold.ttf")
 _BOLT = ((0.60, 0.05), (0.20, 0.57), (0.44, 0.57), (0.37, 0.95), (0.80, 0.41), (0.55, 0.41))
 _SUPERSAMPLE = 8
-
-# Seven-segment glyphs; segments are named as usual:
-#    aaa
-#   f   b
-#    ggg
-#   e   c
-#    ddd
-_SEGMENTS = {
-    "0": "abcdef", "1": "bc", "2": "abdeg", "3": "abcdg", "4": "bcfg",
-    "5": "acdfg", "6": "acdefg", "7": "abc", "8": "abcdefg", "9": "abcdfg",
-    "F": "aefg",                        # 100 % (three digits do not fit)
-    "-": "g",                           # headset off / unknown
-    "_": "d",                           # headset on, battery not read yet
-}
-
-Rect = Tuple[int, int, int, int]        # x0, y0, x1, y1; x1 / y1 exclusive
+_CORNER_RADIUS = 0.22                   # of the icon size
+_LABEL_HEIGHT = 11 / 16                 # font size / icon size: 11 px at 16
+_LABEL_MIN_PX = 6
 
 
 def tray_icon_size() -> int:
@@ -187,64 +170,23 @@ def _half_up(value: float) -> int:
     return int(value + 0.5)
 
 
-@dataclass(frozen=True)
-class _SegMetrics:
-    stroke: int         # thickness of every segment
-    width: int          # width of one digit
-    gap: int            # blank columns between two digits
-    run: int            # length of one vertical segment between two bars
-    height: int         # 3 bars + 2 runs
-
-
-def _seg_metrics(size: int) -> _SegMetrics:
-    """Digit geometry for an icon of ``size`` px.
-
-    At 16 px each digit is 7 x 12 with 2-px strokes and a 1-px gap (two digits
-    take 15 columns); exact multiples of 16 are that design scaled by an
-    integer. Other sizes keep the proportions, rounded to whole pixels: stroke
-    round(size / 8) (ties go to even; never below 2 px unless the digit is too
-    narrow for that), gap ceil(size / 16), and digits 12 / 7 as tall as wide.
-    """
-    k = size / 16
-    gap = max(1, math.ceil(k))
-    width = max(3, (_half_up(15 * k) - gap) // 2)
-    stroke = max(1, min(max(2, round(size / 8)), (width - 2) // 2))
-    run = max(1, _half_up((width * 12 / 7 - 3 * stroke) / 2))
-    return _SegMetrics(stroke, width, gap, run, 3 * stroke + 2 * run)
-
-
-def _segment_rect(seg: str, x: int, y: int, m: _SegMetrics) -> Rect:
-    t, w, h, r = m.stroke, m.width, m.height, m.run
-    return {
-        "a": (x, y, x + w, y + t),
-        "b": (x + w - t, y, x + w, y + 2 * t + r),
-        "c": (x + w - t, y + t + r, x + w, y + h),
-        "d": (x, y + h - t, x + w, y + h),
-        "e": (x, y + t + r, x + t, y + h),
-        "f": (x, y, x + t, y + 2 * t + r),
-        "g": (x, y + t + r, x + w, y + 2 * t + r),
-    }[seg]
-
-
-def label_rects(label: str, size: int) -> List[Rect]:
-    """Solid rectangles (x0, y0, x1, y1; end exclusive) that draw ``label`` in a
-    ``size`` x ``size`` icon: the glyphs are centred on the pixel grid, using
-    the ink (so a leading ``1``, which is right-aligned in its cell, does not
-    leave a hole on the left)."""
-    m = _seg_metrics(size)
-    rects = []
-    for i, ch in enumerate(label):
+def _load_font(px: int) -> ImageFont.ImageFont:
+    for name in _FONT_CANDIDATES:
         try:
-            segments = _SEGMENTS[ch]
-        except KeyError:
-            raise ValueError(f"no seven-segment glyph for {ch!r}") from None
-        rects += [_segment_rect(s, i * (m.width + m.gap), 0, m) for s in segments]
-    if not rects:
-        return []
-    left, right = min(r[0] for r in rects), max(r[2] for r in rects)
-    dx = (size - (right - left)) // 2 - left
-    dy = (size - m.height) // 2
-    return [(x0 + dx, y0 + dy, x1 + dx, y1 + dy) for x0, y0, x1, y1 in rects]
+            return ImageFont.truetype(name, px)
+        except OSError:
+            continue
+    return ImageFont.load_default(px)
+
+
+def _label_font(draw: ImageDraw.ImageDraw, label: str, size: int) -> ImageFont.ImageFont:
+    """Largest font (starting from 11 / 16 of the icon) with ``label`` at most ``size - 2`` px wide."""
+    px = max(_LABEL_MIN_PX, _half_up(size * _LABEL_HEIGHT))
+    font = _load_font(px)
+    while px > _LABEL_MIN_PX and draw.textlength(label, font=font) > size - 2:
+        px -= 1
+        font = _load_font(px)
+    return font
 
 
 def _draw_mute_badge(img: Image.Image) -> None:
@@ -274,14 +216,15 @@ def render_icon(spec: IconSpec, size: int = 16) -> Image.Image:
     s = size * _SUPERSAMPLE
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    draw.rounded_rectangle((0, 0, s - 1, s - 1), radius=int(s * 0.22), fill=spec.bg + (255,))
+    draw.rounded_rectangle((0, 0, s - 1, s - 1), radius=int(s * _CORNER_RADIUS), fill=spec.bg + (255,))
     if spec.kind == "charging" and not spec.label:
         draw.polygon([(x * s, y * s) for x, y in _BOLT], fill=spec.fg + (255,))
     img = img.resize((size, size), Image.BOX)        # exact area coverage: flat interior, no ringing
 
-    for rect in label_rects(spec.label, size):
-        img.paste(spec.fg + (255,), rect)           # replaces the pixels, no blending
-
+    if spec.label:
+        draw = ImageDraw.Draw(img)
+        draw.text((size / 2, size / 2), spec.label, font=_label_font(draw, spec.label, size),
+                  fill=spec.fg + (255,), anchor="mm")
     if spec.muted:
         _draw_mute_badge(img)
     return img

@@ -10,9 +10,9 @@ sys.path.insert(0, str(ROOT))
 
 from hyperx_battery.tray import GREEN, WHITE, IconSpec, render_icon  # noqa: E402
 
-# Seven-segment digits have no letters to spell "HX", so the exe shows the tray's green "85".
+# The exe shows the tray's soft green "85": it reads at 16 px, where "HX" would have to shrink to fit.
 SPEC = IconSpec("percent", "85", GREEN, WHITE)
-# Every frame is drawn at its own size (not downscaled from 256), so the digits stay on the pixel grid.
+# Every frame is drawn at its own size (not downscaled from 256), so the number is hinted and crisp in each one.
 SIZES = (16, 20, 24, 28, 32, 40, 48, 64, 128, 256)
 
 
