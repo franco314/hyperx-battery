@@ -47,8 +47,8 @@ Solo Windows (probado en Windows 11).
 **Instalación silenciosa** (útil para automatizar):
 
 ```powershell
-.\HyperXBattery-Setup-1.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART                       # con "Iniciar con Windows"
-.\HyperXBattery-Setup-1.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /MERGETASKS="!startup" # sin "Iniciar con Windows"
+.\HyperXBattery-Setup-1.3.1.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART                       # con "Iniciar con Windows"
+.\HyperXBattery-Setup-1.3.1.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /MERGETASKS="!startup" # sin "Iniciar con Windows"
 & "$env:LOCALAPPDATA\Programs\HyperX Battery\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES        # desinstala (conserva los datos)
 ```
 
